@@ -1,0 +1,35 @@
+---
+imports:
+  - hosts.yaml
+
+tasks:
+  create_file:
+    description: "Create a file to upload"
+    stop_on_error: true
+    local_command:
+      - dd if=/dev/zero of=/tmp/testfile bs=1M count=5 2> /dev/null
+
+  upload_and_delete:
+    description: "Upload a file to remote host, then delete both remote and local"
+    stop_on_error: false
+    upload:
+      - "/tmp/testfile /tmp/testfile_remote"
+    delete_remote:
+      - "/tmp/testfile_remote"
+    delete_local:
+      - "/tmp/testfile"
+
+  check:
+    description: "Check the dir"
+    remote_command:
+      - ls -laht /tmp/
+
+task_groups:
+  upload_delete_test:
+    - name: "Upload and Delete Test"
+    - task: create_file
+      hosts: rhel10
+    - task: upload_and_delete
+      hosts: rhel10
+    - task: check
+      hosts: rhel10

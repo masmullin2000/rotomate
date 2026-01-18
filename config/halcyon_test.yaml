@@ -1,0 +1,33 @@
+# Test configuration for halcyon directory setup
+---
+
+imports:
+  - hosts.yaml
+
+vars:
+  token_id: "test-token-12345"
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  rhel10:
+    hostname: rhel10
+    sudo_password: "."
+
+tasks:
+  populate_hal_dir:
+    description: "Copy the halcyon files to their correct locations as root"
+    stop_on_error: true
+    become_root: true
+    remote_command:
+      - mkdir -p /opt/halcyon/halcyonar/
+      - echo "install_token = \"{{token_id}}\"" > /opt/halcyon/halcyonar/token.toml
+
+task_groups:
+  setup_halcyon:
+    - name: "Setup Halcyon Directory"
+    - task: populate_hal_dir
+      hosts: rhel10

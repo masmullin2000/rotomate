@@ -1,0 +1,114 @@
+# Smoke test for Proxmox API integration
+# Update the values below with your actual Proxmox credentials and VM info
+
+proxmox:
+  url: https://vms:8006
+  token_id: mm@pam!raut
+  # remember to delete this before going public
+  token_secret: c90b7218-9e87-4e8a-ab0a-b42ec4c4dcd9
+  verify_ssl: false # Set to true in production
+  timeout: 60
+
+defaults:
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  rhel10:
+    hostname: rhel10
+    proxmox:
+      vmid: 110
+      node: vm-host
+      snapshot: ephem2 # Default snapshot for rollback
+  deb13:
+    hostname: deb13
+    proxmox:
+      vmid: 111
+      node: vm-host
+      snapshot: ephem2
+
+groups:
+  linux:
+    - rhel10
+    - deb13
+
+tasks:
+  rollback_vm:
+    description: Rollback VM to clean snapshot (uses host's proxmox_snapshot)
+    proxmox_command:
+      - rollback
+
+  start_vm:
+    description: Start the VM via Proxmox API
+    proxmox_command:
+      - start
+
+  check_system:
+    description: Run a simple command to verify connectivity
+    remote_command:
+      - cat /etc/passwd
+
+  write_test_file:
+    description: Write a test file to the VM
+    remote_command:
+      - echo "proxmox test 2" > /home/mm/prox-test.txt
+
+  snapshot_vm:
+    description: Shutdown VM and take a snapshot
+    proxmox_command:
+      - snapshot post-test
+
+  shutdown_vm:
+    description: Gracefully shutdown the VM via Proxmox API
+    proxmox_command:
+      - shutdown
+
+  force_stop_vm:
+    description: Force stop the VM (immediate power off)
+    proxmox_command:
+      - stop
+
+  delete_snapshot:
+    description: Delete the post-test snapshot
+    proxmox_command:
+      - delete post-test
+
+  wait_task:
+    description: Wait for 10 seconds
+    local_command:
+      - sleep 60
+
+task_groups:
+  pre_test:
+    - name: "Proxmox Smoke Test setup"
+
+    - task: delete_snapshot
+      hosts: linux
+    - task: shutdown_vm
+      hosts: linux
+    - task: rollback_vm
+      hosts: linux
+    - task: start_vm
+      hosts: linux
+
+  run_test:
+    - name: "Proxmox Smoke Test run"
+    - depends:
+      - pre_test
+
+    - task: write_test_file
+      hosts: linux
+    - task: check_system
+      hosts: linux
+
+  post_test:
+    - name: "Proxmox Post test operations"
+    - depends:
+      - pre_test
+      - run_test
+
+    - task: shutdown_vm
+      hosts: linux
+    - task: snapshot_vm
+      hosts: linux
+

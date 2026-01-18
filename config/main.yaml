@@ -1,0 +1,18 @@
+# Main configuration file that imports other configs
+
+imports:
+  - hosts.yaml
+  - tasks.yaml
+  # - runs.yaml
+  - more_tasks.yaml
+
+task_groups:
+  cat_passwd:
+    - name: "cat passwd group"
+    - task: cat_passwd
+      hosts: all
+    - task: complexity
+      hosts: all
+    - task: less_complex
+      hosts: all
+

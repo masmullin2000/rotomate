@@ -1,0 +1,40 @@
+---
+proxmox:
+  url: https://vms:8006
+  token_id: mm@pam!raut
+  # remember to delete this before going public
+  token_secret: c90b7218-9e87-4e8a-ab0a-b42ec4c4dcd9
+  verify_ssl: false # Set to true in production
+  timeout: 60
+
+tasks:
+  start_vm:
+    description: Start the VM via Proxmox API
+    proxmox_command:
+      - start
+
+  shutdown_vm:
+    description: Gracefully shutdown the VM via Proxmox API
+    proxmox_command:
+      - shutdown
+
+  force_stop_vm:
+    description: Force stop the VM (immediate power off)
+    proxmox_command:
+      - stop
+
+  rollback_vm:
+    description: Rollback VM to clean snapshot (uses host's proxmox_snapshot)
+    proxmox_command:
+      - rollback
+
+  snapshot_vm:
+    description: Shutdown VM and take a snapshot
+    proxmox_command:
+      - snapshot {{ proxmox_post_snap }}
+
+  delete_snapshot_vm:
+    description: Delete the post-test snapshot
+    proxmox_command:
+      - delete {{ proxmox_post_snap }}
+

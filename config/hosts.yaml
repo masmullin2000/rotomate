@@ -1,0 +1,60 @@
+---
+vars:
+  proxmox_post_snap: "post-test"
+
+defaults:
+  port: 22
+  username: mm
+  # private_key: ~/.ssh/id_ed25519
+
+hosts:
+  rhel10:
+    hostname: rhel10
+    sudo_password: "."
+    private_key: ~/.ssh/id_ed25519
+    proxmox:
+      vmid: 110
+      node: vm-host
+      snapshot: ephem
+
+  deb13:
+    hostname: deb13
+    sudo_password: "."
+    private_key: ~/.ssh/id_ed25519
+    proxmox:
+      vmid: 111
+      node: vm-host
+      snapshot: ephem
+
+  al:
+    hostname: al
+    sudo_password: "."
+    private_key: ~/.ssh/id_ed25519
+    proxmox:
+      vmid: 112
+      node: vm-host
+      snapshot: ephem
+
+  mac:
+    hostname: mac
+    sudo_prompt: true
+
+  win:
+    hostname: w11_home
+    os: windows
+    username: mm
+    admin_prompt: true
+    private_key: ~/.ssh/id_ed25519
+    proxmox:
+      vmid: 108
+      node: vm-host
+      snapshot: ephem
+
+groups:
+  all:
+    - rhel10
+    - deb13
+    - al
+
+  windows:
+    - win

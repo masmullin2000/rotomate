@@ -1,0 +1,37 @@
+[package]
+name = "rotomate"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "rot"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+dirs = "6"
+env_logger = "0.11"
+futures = "0.3"
+minijinja = "2"
+log = "0.4"
+russh = "0.56"
+russh-sftp = { git = "https://github.com/masmullin2000/russh-sftp.git", branch = "task/my_fixes" }
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+shell-escape = "0.1"
+shellexpand = "3"
+tokio = { version = "1", features = ["io-std", "rt", "macros", "sync"] }
+rpassword = "7"
+whoami = "2"
+mimalloc = "0.1.48"
+bytes = "1.11.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

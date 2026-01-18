@@ -1,0 +1,103 @@
+# Test configuration for builtin template variables
+# Tests: {{ builtin.host }}, {{ builtin.task_group }}, {{ builtin.timestamp }}
+---
+
+imports:
+  - hosts.yaml
+
+vars:
+  log_dir: /tmp/rotomate-test
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+tasks:
+  test_builtin_vars:
+    description: "Test builtin template variables"
+    stop_on_error: false
+    verbose: true
+    remote_command:
+      - "echo '=== Builtin Variable Test ==='"
+      - "echo 'Host: {{ builtin.host }}'"
+      - "echo 'Task Group: {{ builtin.task_group }}'"
+      - "echo 'Timestamp: {{ builtin.timestamp }}'"
+      - "echo '=== Combined Usage ==='"
+      - "echo 'Log file would be: {{ log_dir }}/{{ builtin.host }}-{{ builtin.timestamp }}.log'"
+
+  test_in_paths:
+    description: "Test builtin vars in upload/download paths"
+    stop_on_error: false
+    verbose: true
+    remote_command:
+      - "mkdir -p /tmp/rotomate-test/{{ builtin.timestamp }}"
+      - "echo 'Created by {{ builtin.host }} at {{ builtin.timestamp }}' > /tmp/rotomate-test/{{ builtin.timestamp }}/info.txt"
+      - "cat /tmp/rotomate-test/{{ builtin.timestamp }}/info.txt"
+
+  test_with_host_context:
+    description: "Test builtin vars alongside host context"
+    stop_on_error: false
+    verbose: true
+    remote_command:
+      - "echo '=== Host Context + Builtin ==='"
+      - "echo 'host.name: {{ host.name }}'"
+      - "echo 'host.hostname: {{ host.hostname }}'"
+      - "echo 'builtin.host: {{ builtin.host }}'"
+      - "echo 'builtin.task_group: {{ builtin.task_group }}'"
+      - "echo 'These should match: {{ host.name }} == {{ builtin.host }}'"
+
+  test_download:
+    description: "Test builtin vars in download paths"
+    stop_on_error: false
+    verbose: true
+    download:
+      - "/etc/os-release /tmp/os-release.{{ builtin.host }}.{{ builtin.timestamp }}"
+
+  test_local_command:
+    description: "Test builtin vars in local commands"
+    stop_on_error: false
+    verbose: true
+    local_command:
+      - echo {{ log_dir }}
+      - "mkdir -p /tmp/rotomate-local/{{ builtin.timestamp }}"
+      - "cd /tmp/rotomate-local/{{ builtin.timestamp }} && pwd"
+      - "echo 'Host: {{ builtin.host }}' > /tmp/rotomate-local/{{ builtin.timestamp }}/local-test.txt"
+      - "echo 'Task Group: {{ builtin.task_group }}' >> /tmp/rotomate-local/{{ builtin.timestamp }}/local-test.txt"
+      - "cat /tmp/rotomate-local/{{ builtin.timestamp }}/local-test.txt"
+
+task_groups:
+  builtin_tests:
+    - name: "Builtin Variable Tests"
+    - task: test_builtin_vars
+      hosts: all
+
+  path_tests:
+    - name: "Path Variable Tests"
+    - task: test_in_paths
+      hosts: all
+
+  combined_tests:
+    - name: "Combined Context Tests"
+    - depends:
+        - builtin_tests
+    - task: test_with_host_context
+      hosts: all
+
+  download_tests:
+    - name: "Download Tests"
+    - task: test_download
+      hosts: all
+
+  local_command_tests:
+    - name: "Local Command Tests"
+    - task: test_local_command
+      hosts: all
+
+# Campaigns - named whitelists of task_groups to include
+# Targets can be task_groups or other campaigns
+campaigns:
+  full_test:
+    targets: [quick_test, builtin_tests, path_tests, download_tests, local_command_tests]
+  quick_test:
+    targets: [combined_tests]

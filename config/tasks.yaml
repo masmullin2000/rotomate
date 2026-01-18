@@ -1,0 +1,38 @@
+# Task definitions for rotomate
+
+tasks:
+  list_files:
+    description: "List files in home directory"
+    stop_on_error: true
+    remote_command:
+      - ls -la | sort -r
+
+  system_info:
+    description: "Get system information"
+    stop_on_error: false
+    remote_command:
+      - uname -a
+      - hostname
+      - uptime
+
+  push_test.txt:
+    description: "Push the file text.txt to the remote"
+    stop_on_error: false
+    upload:
+      - /code/rotomate/test.txt /home/mm/test.txt
+      - /code/rotomate/target/x86_64-unknown-linux-musl/release/rot /home/mm/rot
+    remote_command:
+      - cat ~/test.txt
+      - chmod +x ~/rot
+      - ./rot -h
+    download:
+      - /etc/passwd /code/passwd
+
+  read_test.txt:
+    description: "Read the file text.txt"
+    become_root: true
+    stop_on_error: true
+    inactivity_timeout: 60
+    remote_command:
+      - cat ~/test.txt
+      - sleep 10

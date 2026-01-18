@@ -1,0 +1,19 @@
+# Run groups for rotomate
+
+task_groups:
+  deploy_and_verify:
+    - name: "Deploy and Verify"
+    - task: push_test.txt
+      hosts: all
+    - task: read_test.txt
+      hosts: all
+
+  list_files:
+    - name: "List Files"
+    - task: list_files
+      hosts: rhel10
+
+  sys_info:
+    - name: "System Info"
+    - task: system_info
+      hosts: all

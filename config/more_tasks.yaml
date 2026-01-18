@@ -1,0 +1,28 @@
+vars:
+  something: 5
+
+tasks:
+  cat_passwd:
+    description: "show the passwd file"
+    stop_on_error: true
+    remote_command:
+      - cat /etc/passwd
+
+  complexity:
+    description: "run bash script"
+    stop_on_error: true
+    remote_command: |
+      #/usr/bin/env bash
+      ls -l | grep rwx
+
+      pwd
+
+  less_complex:
+    description: "some stuff"
+    become_root: true
+    remote_command:
+      - whoami
+
+  delay:
+    local_command:
+      - sleep {{ delay_time }}

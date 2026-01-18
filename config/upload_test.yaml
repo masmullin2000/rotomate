@@ -1,0 +1,20 @@
+---
+imports:
+  - hosts.yaml
+
+tasks:
+  upload_large_file:
+    description: "Upload test file"
+    stop_on_error: true
+    local_command: |
+      #/usr/bin/env bash
+      just build
+      echo test > /tmp/testfile
+    upload:
+      - "/tmp/testfile /tmp/"
+
+task_groups:
+  upload_test:
+    - name: "Upload Test"
+    - task: upload_large_file
+      hosts: all 

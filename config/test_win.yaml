@@ -1,0 +1,28 @@
+# Windows test configuration
+vars:
+  delay_time: 5
+
+imports:
+  - more_tasks.yaml
+
+hosts:
+  w11_home:
+    hostname: w11_home
+    os: windows
+    username: mm
+
+tasks:
+  agent_stop_win:
+    description: Stop the Agent
+    stop_on_error: true
+    remote_command:
+      - "sc.exe start halcyonagent"
+      - "sc.exe stop halcyonagent"
+
+task_groups:
+  main:
+    - name: "Windows Agent Stop Test"
+    - task: agent_stop_win
+      hosts: w11_home
+    - task: delay
+      hosts: w11_home

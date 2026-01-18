@@ -1,0 +1,25 @@
+# Simple Windows example
+
+hosts:
+  win:
+    hostname: w11_home
+    os: windows
+    username: mm
+    admin_prompt: true
+
+tasks:
+  test_windows:
+    description: "Test file operations on Windows"
+    upload:
+      - "test.txt C:\\tmp\\input.txt"
+    remote_command:
+      - Get-Content C:\tmp\input.txt
+      - Set-Content -Path C:\tmp\output.txt -Value "hello, windows"
+    download:
+      - "C:\\tmp\\output.txt output.txt"
+
+task_groups:
+  main:
+    - name: "Windows File Test"
+    - task: test_windows
+      hosts: win

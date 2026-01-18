@@ -1,0 +1,41 @@
+# Test configuration for output mode verification
+
+defaults:
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  # Local-only task to test local command output capture
+  test_local:
+    description: Test local command output modes
+    inactivity_timeout: 120
+    local_command:
+      - echo "Line 1 from local"
+      - echo "Line 2 from local"
+      - echo "Error output(intentional)" >&2
+      - sleep 5
+      - echo "Line 3 after delay local"
+
+  test_remote:
+    description: Test local command output modes
+    remote_command:
+      - echo "Line 1 from remote"
+      - echo "Line 2 from remote"
+      - echo "Error output(intentional)" >&2
+      - sleep 5
+      - echo "Line 3 after delay remote"
+
+  # Task with task-level verbose (streams output)
+
+task_groups:
+  test_group:
+    - name: Output Mode Tests
+
+    - task: test_local
+
+    - task: test_remote
+      hosts: localhost

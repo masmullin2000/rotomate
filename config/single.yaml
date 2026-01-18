@@ -1,0 +1,102 @@
+# Test configuration for rotomate
+---
+
+imports:
+  - hosts.yaml
+
+vars:
+  musl_debug: "target/x86_64-unknown-linux-musl/debug/"
+  app_name: "rot"
+  musl_app: "{{ musl_debug }}{{ app_name }}"
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+# hosts:
+#   # rhel10:
+#   #   hostname: rhel10
+#   #   sudo_password: "." # dont do this lightly
+#   #
+#   deb13:
+#     hostname: deb13
+#     sudo_password: "."
+
+# groups:
+#   all:
+#     - rhel10
+#     - deb13
+
+tasks:
+  list_files:
+    description: "List files in home directory"
+    stop_on_error: true
+    remote_command:
+      - ls -la | sort -r
+
+  system_info:
+    description: "Get system information"
+    stop_on_error: false
+    remote_command:
+      - uname -a
+      - hostname
+      - uptime
+
+  local_build:
+    description: "Build the musl debug version"
+    stop_on_error: true
+    verbose: true
+    local_command: |
+      #!/usr/bin/env bash
+      just build
+
+      strip {{ musl_app }}
+      sha256sum {{ musl_app }}
+
+  push_test.txt:
+    description: "Push the file text.txt to the remote"
+    stop_on_error: false
+    upload:
+      - test.txt /home/mm/test.txt
+      - "{{ musl_app }} /home/mm/{{ app_name }}"
+    remote_command:
+      - cat ~/test.txt
+      - chmod +x ~/rot
+      - ./rot -h
+    download:
+      - /etc/passwd /code/passwd
+
+  read_test.txt:
+    description: "Read the file text.txt"
+    become_root: true
+    stop_on_error: true
+    inactivity_timeout: 60
+    verbose: true
+    remote_command:
+      - cat /home/mm/test.txt
+
+# Run groups - each group runs in parallel,
+#     tasks within a group run sequentially
+task_groups:
+  deploy_and_verify:
+    - name: "Deploy and Verify"
+    - task: local_build
+      hosts: all
+    - task: push_test.txt
+      hosts: all
+    - task: read_test.txt
+      hosts: all
+
+  list_files:
+    - name: "List Files"
+    - task: list_files
+      hosts: rhel10
+
+  sys_info:
+    - name: "System Info"
+    - depends:
+      - deploy_and_verify
+      - list_files
+    - task: system_info
+      hosts: all

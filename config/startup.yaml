@@ -1,0 +1,12 @@
+---
+imports:
+  - hosts.yaml
+  - proxmox_tasks.yaml
+
+task_groups:
+  shutdown:
+    - name: Start them all up
+
+    - task: start_vm
+      hosts: all
+
