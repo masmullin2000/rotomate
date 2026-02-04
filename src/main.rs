@@ -37,11 +37,11 @@ enum Commands {
         task: Option<String>,
 
         /// Run only `task_groups` in the specified campaign
-        #[arg(long)]
+        #[arg(long, short)]
         campaign: Option<String>,
 
         /// Lenient campaign mode: warn about missing dependencies but don't auto-include them
-        #[arg(long)]
+        #[arg(long, short)]
         lenient_campaign: bool,
 
         /// Show detailed output from each host (streams output in real-time)
