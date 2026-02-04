@@ -375,38 +375,32 @@ Campaigns define named subsets of task_groups to run. Useful for different deplo
 
 ```yaml
 campaigns:
-  quick_deploy:
-    targets:
-      - deploy_web               # Only deploy web servers
-
+  # First campaign is auto-selected when no --campaign specified
   full_deploy:
-    primary: true                # Auto-selected when no --campaign specified
-    targets:
-      - build
-      - deploy_web
-      - deploy_db
-      - verify
+    - build
+    - deploy_web
+    - deploy_db
+    - verify
+
+  quick_deploy: [deploy_web]     # Only deploy web servers
 
   rollback:
-    targets:
-      - restore_backup
-      - restart_services
+    - restore_backup
+    - restart_services
 ```
 
-Campaign targets can reference task_groups or other campaigns:
+Campaign items can reference task_groups or other campaigns:
 
 ```yaml
 campaigns:
   core:
-    targets:
-      - build
-      - deploy_web
+    - build
+    - deploy_web
 
   extended:
-    targets:
-      - core                     # Include all targets from 'core' campaign
-      - deploy_db
-      - monitoring
+    - core                       # Include all items from 'core' campaign
+    - deploy_db
+    - monitoring
 ```
 
 Run a specific campaign:
@@ -415,7 +409,7 @@ Run a specific campaign:
 rot run -c config.yaml --campaign quick_deploy
 ```
 
-If multiple campaigns exist and none is marked `primary: true`, the `--campaign` flag is required.
+If multiple campaigns exist, the first one (by definition order) is auto-selected if no `--campaign` is specified.
 
 ---
 
@@ -612,16 +606,13 @@ task_groups:
       hosts: app_servers
 
 campaigns:
-  quick:
-    targets:
-      - deployment
-
+  # First campaign is auto-selected
   full:
-    primary: true
-    targets:
-      - preparation
-      - deployment
-      - verification
+    - preparation
+    - deployment
+    - verification
+
+  quick: [deployment]
 ```
 
 ```yaml

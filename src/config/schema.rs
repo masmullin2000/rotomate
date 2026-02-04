@@ -240,7 +240,7 @@ impl Config {
             anyhow::anyhow!("Campaign '{campaign_name}' not found")
         })?;
 
-        for target in &campaign.targets {
+        for target in campaign {
             if task_group_keys.contains(target) {
                 // Target is a task_group - add it directly
                 result.insert(target.clone());
@@ -763,10 +763,7 @@ impl ExecCmdline {
 }
 
 /// A campaign definition - a named whitelist of `task_groups` to run.
+///
 /// When multiple campaigns exist and none is specified, the first one (alphabetically) is used.
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct Campaign {
-    /// List of `task_group` keys to include in this campaign.
-    #[serde(default)]
-    pub targets: Vec<String>,
-}
+/// Can be specified as a simple list: `campaign_name: [task1, task2]`
+pub type Campaign = Vec<String>;

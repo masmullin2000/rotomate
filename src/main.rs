@@ -653,7 +653,7 @@ fn list_campaigns(resolved: &config::Config, verbose: bool) {
         } else {
             println!("{name}{primary_marker}");
         }
-        for target in &campaign.targets {
+        for target in campaign {
             println!("  - {target}");
         }
     }

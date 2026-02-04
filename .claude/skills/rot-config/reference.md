@@ -123,15 +123,12 @@ task_groups:
 
 ```yaml
 campaigns:
-  quick:
-    targets:
-      - deploy_only
+  # First campaign is auto-selected if no --campaign specified
   full:
-    primary: true               # Auto-selected if no --campaign
-    targets:
-      - build
-      - deploy_only
-      - verify
+    - build
+    - deploy_only
+    - verify
+  quick: [deploy_only]
 ```
 
 ## Variables

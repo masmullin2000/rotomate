@@ -95,9 +95,7 @@ task_groups:
       hosts: all
 
 # Campaigns - named whitelists of task_groups to include
-# Targets can be task_groups or other campaigns
+# Items can be task_groups or other campaigns
 campaigns:
-  full_test:
-    targets: [quick_test, builtin_tests, path_tests, download_tests, local_command_tests]
-  quick_test:
-    targets: [combined_tests]
+  full_test: [quick_test, builtin_tests, path_tests, download_tests, local_command_tests]
+  quick_test: [combined_tests]
