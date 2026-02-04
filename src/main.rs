@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use mimalloc::MiMalloc;
 
@@ -48,9 +48,9 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
 
-        /// Capture and display output when task completes
-        #[arg(long)]
-        capture_output: bool,
+        /// Capture output: "std" to display after completion, or a file path to write to
+        #[arg(short = 'o', long)]
+        capture_output: Option<String>,
 
         /// Prompt for sudo password (required for tasks with `become_root: true`)
         #[arg(long)]
@@ -201,7 +201,7 @@ async fn run_command(
     campaign_name: Option<String>,
     lenient_campaign: bool,
     verbose: bool,
-    capture_output: bool,
+    capture_output: Option<String>,
     root: bool,
 ) -> Result<()> {
     let start_time = Instant::now();
@@ -325,12 +325,12 @@ async fn run_command(
     let host_names: Vec<String> = config.hosts.keys().cloned().collect();
     let formatter = OutputFormatter::new(&host_names);
 
-    // Create executor
+    // Create executor (pass bool for whether to capture, not the destination)
     let executor = Executor::new(
         config,
         sudo_password,
         verbose,
-        capture_output,
+        capture_output.is_some(),
         proxmox_client,
     );
 
@@ -366,12 +366,18 @@ async fn run_command(
     };
 
     // Display captured output after all tasks complete (if capture_output enabled)
-    if capture_output {
-        println!();
-        println!("=== Captured Output ===");
-        println!();
-        for result in &results {
-            formatter.print_detailed(result);
+    if let Some(ref output_dest) = capture_output {
+        if output_dest == "std" {
+            // Print to stdout (current behavior)
+            println!();
+            println!("=== Captured Output ===");
+            println!();
+            for result in &results {
+                formatter.print_detailed(result);
+            }
+        } else {
+            // Write to file
+            write_captured_output_to_file(output_dest, &results, &formatter)?;
         }
     }
 
@@ -403,6 +409,73 @@ async fn run_command(
     } else {
         std::process::exit(1);
     }
+}
+
+/// Write captured output to a file (without colors).
+fn write_captured_output_to_file(
+    path: &str,
+    results: &[rotomate::executor::TaskGroupResult],
+    formatter: &OutputFormatter,
+) -> Result<()> {
+    use std::io::Write;
+
+    let mut file = std::fs::File::create(path)
+        .with_context(|| format!("Failed to create output file: {path}"))?;
+
+    writeln!(file, "=== Captured Output ===")?;
+    writeln!(file)?;
+
+    for result in results {
+        for task_execution in &result.tasks {
+            for host_result in &task_execution.hosts {
+                // Write task start marker
+                let inactivity_timeout = host_result
+                    .result
+                    .as_ref()
+                    .map_or(0, |tr| tr.inactivity_timeout);
+                writeln!(
+                    file,
+                    "#[{}: START -> {} (timeout: {}s)]#",
+                    host_result.host_name, task_execution.task_name, inactivity_timeout
+                )?;
+
+                // Write host output
+                if let Ok(task_result) = &host_result.result {
+                    // Local commands
+                    for cmd_result in &task_result.local_commands {
+                        for line in cmd_result.stdout.lines() {
+                            writeln!(file, "[{}] {}", host_result.host_name, line)?;
+                        }
+                        for line in cmd_result.stderr.lines() {
+                            writeln!(file, "[{}] {}", host_result.host_name, line)?;
+                        }
+                    }
+                    // Remote commands
+                    for cmd_result in &task_result.commands {
+                        for line in cmd_result.stdout.lines() {
+                            writeln!(file, "[{}] {}", host_result.host_name, line)?;
+                        }
+                        for line in cmd_result.stderr.lines() {
+                            writeln!(file, "[{}] {}", host_result.host_name, line)?;
+                        }
+                    }
+                }
+
+                // Write task end marker
+                let status = if host_result.success() { "SUCCESS" } else { "FAILED" };
+                writeln!(
+                    file,
+                    "#[{}: END -> {}: {}]#",
+                    host_result.host_name, task_execution.task_name, status
+                )?;
+            }
+        }
+    }
+
+    println!("Captured output written to: {path}");
+    // Suppress unused variable warning - formatter could be used for more complex formatting
+    let _ = formatter;
+    Ok(())
 }
 
 fn check_command(config_paths: &[PathBuf]) -> Result<()> {
