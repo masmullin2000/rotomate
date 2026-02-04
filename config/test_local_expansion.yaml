@@ -1,0 +1,16 @@
+imports:
+  - vars_local_expansion.yaml
+
+tasks:
+  write_installer_script:
+    description: Write the installer script
+    stop_on_error: true
+    local_command: |
+      cat > /tmp/run_installer.bat << 'EOF'
+      c:\tmp\HalcyonAR_Setup_x64_v{{ agent_version }}.exe /v /z"ACCEPTEULA INSTALLTOKEN={{token_id}}" /v"/lvoicewarmup! c:\Users\mm\install.log
+      EOF
+
+task_groups:
+  test_expansion:
+    - name: "Test variable expansion in local_command"
+    - task: write_installer_script
