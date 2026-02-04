@@ -12,7 +12,7 @@ Help the user create rot SSH automation configuration files based on their requi
 ## Reference Documentation
 
 See the quick reference at [reference.md](reference.md) for all configuration options.
-For complete documentation, see: https://DOCS_URL_PLACEHOLDER/CONFIGURATION.md
+For complete documentation, see: https://raw.githubusercontent.com/masmullin2000/rotomate/refs/heads/main/docs/CONFIGURATION.md
 
 ## Your Task
 
