@@ -91,7 +91,11 @@ pub trait EnvironmentExt {
     fn render_template(&self, template: &str, context: &minijinja::Value) -> Result<String>;
 
     /// Render a vector of strings.
-    fn render_string_vec(&self, strings: &[String], context: &minijinja::Value) -> Result<Vec<String>>;
+    fn render_string_vec(
+        &self,
+        strings: &[String],
+        context: &minijinja::Value,
+    ) -> Result<Vec<String>>;
 }
 
 impl EnvironmentExt for Environment<'_> {
@@ -144,7 +148,11 @@ impl EnvironmentExt for Environment<'_> {
             .with_context(|| format!("Failed to render template: {template}"))
     }
 
-    fn render_string_vec(&self, strings: &[String], context: &minijinja::Value) -> Result<Vec<String>> {
+    fn render_string_vec(
+        &self,
+        strings: &[String],
+        context: &minijinja::Value,
+    ) -> Result<Vec<String>> {
         strings
             .iter()
             .map(|s| self.render_template(s, context))
@@ -183,7 +191,9 @@ where
 
 /// Convert YAML vars to minijinja Value context with placeholder objects for host and builtin.
 /// This allows lenient mode to handle `host.*` and `builtin.*` attribute access without erroring.
-pub fn vars_to_context_with_placeholders<H>(vars: &HashMap<String, serde_yaml::Value, H>) -> minijinja::Value
+pub fn vars_to_context_with_placeholders<H>(
+    vars: &HashMap<String, serde_yaml::Value, H>,
+) -> minijinja::Value
 where
     H: std::hash::BuildHasher,
 {
@@ -197,8 +207,14 @@ where
     // undefined values in lenient mode instead of erroring, so these templates
     // can be properly resolved at execution time.
     let empty_obj: HashMap<String, minijinja::Value> = HashMap::new();
-    map.insert("host".to_string(), minijinja::Value::from_serialize(&empty_obj));
-    map.insert("builtin".to_string(), minijinja::Value::from_serialize(&empty_obj));
+    map.insert(
+        "host".to_string(),
+        minijinja::Value::from_serialize(&empty_obj),
+    );
+    map.insert(
+        "builtin".to_string(),
+        minijinja::Value::from_serialize(&empty_obj),
+    );
 
     minijinja::Value::from_serialize(&map)
 }

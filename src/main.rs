@@ -651,7 +651,11 @@ fn list_campaigns(resolved: &config::Config, verbose: bool) {
 
     // Iterate in definition order (IndexMap preserves insertion order)
     for (name, campaign) in &resolved.campaigns {
-        let primary_marker = if Some(name.as_str()) == primary_name { " (primary)" } else { "" };
+        let primary_marker = if Some(name.as_str()) == primary_name {
+            " (primary)"
+        } else {
+            ""
+        };
         if verbose {
             let source = resolved
                 .campaigns_source

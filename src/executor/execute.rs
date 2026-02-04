@@ -7,7 +7,9 @@ use log::debug;
 use tokio::sync::watch;
 
 use crate::config::template::EnvironmentExt;
-use crate::config::{BuiltinContext, Config, ExecCmdline, RenderedTaskFields, TaskGroup, TaskGroupItem};
+use crate::config::{
+    BuiltinContext, Config, ExecCmdline, RenderedTaskFields, TaskGroup, TaskGroupItem,
+};
 use crate::output::OutputFormatter;
 use crate::proxmox::ProxmoxClient;
 
@@ -37,9 +39,7 @@ impl Executor {
         capture_output: bool,
         proxmox_client: Option<ProxmoxClient>,
     ) -> Self {
-        let timestamp = chrono::Local::now()
-            .format("%Y-%m-%d_%H-%M-%S")
-            .to_string();
+        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         Self {
             config,
             sudo_password,

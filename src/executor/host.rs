@@ -278,7 +278,7 @@ impl Host {
                 Ok(Ok(_)) => {
                     break;
                 }
-                Ok(Err(_)) | Err(_)=> {
+                Ok(Err(_)) | Err(_) => {
                     log::debug!("[{name}] SSH port not yet accessible, retrying...");
                 }
             }

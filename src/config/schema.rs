@@ -236,9 +236,10 @@ impl Config {
             anyhow::bail!("Circular campaign reference detected: '{campaign_name}'");
         }
 
-        let campaign = self.campaigns.get(campaign_name).ok_or_else(|| {
-            anyhow::anyhow!("Campaign '{campaign_name}' not found")
-        })?;
+        let campaign = self
+            .campaigns
+            .get(campaign_name)
+            .ok_or_else(|| anyhow::anyhow!("Campaign '{campaign_name}' not found"))?;
 
         for target in campaign {
             if task_group_keys.contains(target) {
@@ -246,12 +247,7 @@ impl Config {
                 result.insert(target.clone());
             } else if self.campaigns.contains_key(target) {
                 // Target is another campaign - expand it recursively
-                self.expand_campaign_targets_recursive(
-                    target,
-                    task_group_keys,
-                    result,
-                    visited,
-                )?;
+                self.expand_campaign_targets_recursive(target, task_group_keys, result, visited)?;
             } else {
                 anyhow::bail!(
                     "Target '{target}' in campaign '{campaign_name}' is neither a task_group nor a campaign"
@@ -312,9 +308,7 @@ impl Config {
             .transpose()?;
 
         // When not lenient, auto-include all dependencies recursively
-        if !lenient_campaign
-            && let Some(ref mut cg) = campaign_groups
-        {
+        if !lenient_campaign && let Some(ref mut cg) = campaign_groups {
             let mut deps_to_add: Vec<String> = Vec::new();
             self.collect_all_dependencies(cg, &group_keys, &mut deps_to_add);
             for dep in deps_to_add {
