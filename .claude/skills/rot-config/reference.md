@@ -168,14 +168,17 @@ vars:
 ## CLI Commands
 
 ```bash
-rot check -c config.yaml              # Validate config
-rot run -c config.yaml                # Run tasks
-rot run -c config.yaml -v             # Verbose output
-rot run -c config.yaml --root         # Prompt for sudo
-rot run -c config.yaml --campaign X   # Run specific campaign
-rot list -c config.yaml hosts         # List hosts
-rot list -c config.yaml tasks         # List tasks
-rot list -c config.yaml groups        # List task groups
-rot list -c config.yaml campaigns     # List campaigns
-rot list -c config.yaml all           # List everything
+rot check config.yaml                 # Validate config
+rot run config.yaml                   # Run tasks
+rot run config.yaml -v                # Verbose output
+rot run config.yaml --root            # Prompt for sudo
+rot run config.yaml -c deploy         # Run specific campaign
+rot run config.yaml -l                # Lenient: don't auto-include deps
+rot run config.yaml -o std            # Capture output to stdout
+rot run config.yaml -o out.txt        # Capture output to file
+rot list config.yaml hosts            # List hosts
+rot list config.yaml tasks            # List tasks
+rot list config.yaml groups           # List task groups
+rot list config.yaml campaigns        # List campaigns
+rot list config.yaml all              # List everything
 ```

@@ -6,26 +6,35 @@ rot is an SSH automation tool that runs tasks across multiple remote hosts in pa
 
 ```bash
 # Validate configuration without executing
-rot check -c config.yaml
+rot check config.yaml
 
 # Run tasks from a configuration file
-rot run -c config.yaml
+rot run config.yaml
 
 # Run with verbose output (streams command output in real-time)
-rot run -c config.yaml -v
+rot run config.yaml -v
 
 # Run with sudo password prompt (for become_root tasks)
-rot run -c config.yaml --root
+rot run config.yaml --root
 
 # Run multiple config files (merged in order, later files override)
-rot run -c hosts.yaml -c tasks.yaml -c runs.yaml
+rot run hosts.yaml tasks.yaml runs.yaml
+
+# Run a specific campaign
+rot run config.yaml -c quick_deploy
+
+# Capture output to stdout after completion
+rot run config.yaml -o std
+
+# Capture output to a file
+rot run config.yaml -o /tmp/output.txt
 
 # List hosts, tasks, or groups
-rot list -c config.yaml hosts
-rot list -c config.yaml tasks
-rot list -c config.yaml groups
-rot list -c config.yaml campaigns
-rot list -c config.yaml all
+rot list config.yaml hosts
+rot list config.yaml tasks
+rot list config.yaml groups
+rot list config.yaml campaigns
+rot list config.yaml all
 ```
 
 ## Configuration File Structure
@@ -406,10 +415,35 @@ campaigns:
 Run a specific campaign:
 
 ```bash
-rot run -c config.yaml --campaign quick_deploy
+rot run config.yaml --campaign quick_deploy
+# Or use short form:
+rot run config.yaml -c quick_deploy
 ```
 
 If multiple campaigns exist, the first one (by definition order) is auto-selected if no `--campaign` is specified.
+
+### Campaign Dependency Handling
+
+By default, if a task_group in a campaign depends on another task_group not explicitly listed in the campaign, the dependency is automatically included:
+
+```yaml
+campaigns:
+  deploy: [web_deploy]  # web_deploy depends on build
+
+task_groups:
+  build:
+    - task: compile
+  web_deploy:
+    - depends: [build]  # build is auto-included in 'deploy' campaign
+    - task: deploy
+      hosts: web
+```
+
+Use `--lenient-campaign` (or `-l`) to disable auto-inclusion and only warn about missing dependencies:
+
+```bash
+rot run config.yaml -c deploy -l  # Warns about 'build' but doesn't include it
+```
 
 ---
 
@@ -678,11 +712,11 @@ tasks:
 Run the full deployment:
 
 ```bash
-rot run -c config/main.yaml -v
+rot run config/main.yaml -v
 ```
 
 Run just the deployment (skip build and verification):
 
 ```bash
-rot run -c config/main.yaml --campaign quick
+rot run config/main.yaml -c quick
 ```

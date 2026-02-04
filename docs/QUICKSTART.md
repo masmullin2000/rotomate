@@ -480,10 +480,14 @@ task_groups:
 ### Common Commands
 
 ```bash
-rot check config.yaml          # Validate config
-rot run config.yaml            # Run tasks
-rot run config.yaml -v         # Run with verbose output
-rot run config.yaml --root     # Prompt for global sudo password
-rot list config.yaml hosts     # List configured hosts
-rot list config.yaml tasks     # List configured tasks
+rot check config.yaml              # Validate config
+rot run config.yaml                # Run tasks
+rot run config.yaml -v             # Run with verbose output
+rot run config.yaml --root         # Prompt for global sudo password
+rot run config.yaml -c deploy      # Run specific campaign
+rot run config.yaml -o std         # Capture and display output after completion
+rot run config.yaml -o output.txt  # Capture output to file
+rot list config.yaml hosts         # List configured hosts
+rot list config.yaml tasks         # List configured tasks
+rot list config.yaml campaigns     # List configured campaigns
 ```
