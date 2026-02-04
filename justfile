@@ -22,7 +22,7 @@ check:
 
 # Run the project
 run *ARGS:
-    cargo run {{ARGS}}
+    cargo run -r --target x86_64-unknown-linux-musl {{ARGS}}
 
 # Run tests
 test:

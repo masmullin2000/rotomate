@@ -10,6 +10,8 @@ use russh_sftp::client::SftpSession;
 use tokio::net::ToSocketAddrs;
 
 use super::client::Client;
+/// Default chunk size for SFTP uploads (256KB)
+pub const DEFAULT_CHUNK_SIZE: usize = 256 * 1024;
 
 /// Authentication method for SSH connections.
 #[derive(Debug, Clone)]
@@ -211,17 +213,16 @@ impl Session {
         })
     }
 
-    /// Copy a local file to the remote host via SFTP with pipelined writes.
+    /// Copy a local file to the remote host via SFTP with pipelined writes and custom chunk size.
     /// If `remote_path` ends with `/`, the local filename is appended.
     pub async fn copy_file_to_remote(
         &mut self,
         local_path: impl AsRef<Path>,
         remote_path: &str,
+        chunk_size: usize,
     ) -> Result<u64> {
         use log::debug;
         use std::time::Instant;
-
-        const CHUNK_SIZE: usize = 256 * 1024;
 
         let local_path = local_path.as_ref();
 
@@ -265,10 +266,10 @@ impl Session {
         let mut remote_file = sftp.create(&remote_path).await?;
         debug!("Created remote file in {:?}", start.elapsed());
 
-        // Use pipelined writes with 256KB chunks for maximum throughput
+        // Use pipelined writes for maximum throughput
         let start = Instant::now();
         remote_file
-            .write_all_pipelined(contents, CHUNK_SIZE)
+            .write_all_pipelined(contents, chunk_size)
             .await?;
         debug!("Wrote {} bytes in {:?}", file_size, start.elapsed());
 

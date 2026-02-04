@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::config::{ExecCmdline, ShellType, Task};
 use crate::shell::get_shell;
-use crate::ssh::{CommandResult, Session};
+use crate::ssh::{CommandResult, DEFAULT_CHUNK_SIZE, Session};
 
 use super::result::{CopyResult, DeleteResult, ProxmoxResult, TaskResult};
 
@@ -30,7 +30,7 @@ async fn execute_uploads(
     for copy_spec in upload {
         let copy_result = match parse_copy_spec(copy_spec) {
             Some((local_path, remote_path)) => session
-                .copy_file_to_remote(local_path, remote_path)
+                .copy_file_to_remote(local_path, remote_path, DEFAULT_CHUNK_SIZE)
                 .await
                 .map_or_else(
                     |e| CopyResult {

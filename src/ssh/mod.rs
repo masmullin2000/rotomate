@@ -1,4 +1,4 @@
 mod client;
 mod session;
 
-pub use session::{AuthMethod, CommandResult, Session};
+pub use session::{AuthMethod, CommandResult, DEFAULT_CHUNK_SIZE, Session};

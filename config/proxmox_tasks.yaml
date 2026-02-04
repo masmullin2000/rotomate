@@ -3,7 +3,7 @@ proxmox:
   url: https://vms:8006
   token_id: mm@pam!raut
   # remember to delete this before going public
-  token_secret: c90b7218-9e87-4e8a-ab0a-b42ec4c4dcd9
+  token_secret: becb69f7-1ad7-4b94-9bad-b5611f09c10e
   verify_ssl: false # Set to true in production
   timeout: 60
 
