@@ -57,9 +57,15 @@ impl Config {
     }
 
     /// Resolve a raw config into a resolved config, optionally filtered by campaign.
-    pub fn resolve(config: schema::Config, campaign: Option<&str>) -> anyhow::Result<Self> {
+    /// When `lenient_campaign` is false (default), dependencies not in the campaign are auto-included.
+    /// When `lenient_campaign` is true, dependencies are filtered out with warnings.
+    pub fn resolve(
+        config: schema::Config,
+        campaign: Option<&str>,
+        lenient_campaign: bool,
+    ) -> anyhow::Result<Self> {
         let hosts: HashMap<_, _> = config.resolve_hosts().collect::<anyhow::Result<_>>()?;
-        let task_groups = config.resolve_task_groups(campaign)?;
+        let task_groups = config.resolve_task_groups(campaign, lenient_campaign)?;
         let tasks = config.tasks;
         let inactivity_timeout = config.defaults.inactivity_timeout.unwrap_or(15);
         let vars = config.vars;
@@ -88,7 +94,7 @@ impl TryFrom<schema::Config> for Config {
     type Error = anyhow::Error;
 
     fn try_from(config: schema::Config) -> anyhow::Result<Self> {
-        Self::resolve(config, None)
+        Self::resolve(config, None, false)
     }
 }
 

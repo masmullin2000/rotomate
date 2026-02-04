@@ -262,22 +262,65 @@ impl Config {
         Ok(())
     }
 
+    /// Collect all dependencies recursively for `task_groups` in the campaign.
+    /// Adds any dependencies not already in `campaign_groups` to `deps_to_add`.
+    fn collect_all_dependencies(
+        &self,
+        campaign_groups: &std::collections::HashSet<String>,
+        all_group_keys: &std::collections::HashSet<&String>,
+        deps_to_add: &mut Vec<String>,
+    ) {
+        let mut visited: std::collections::HashSet<String> = campaign_groups.clone();
+        let mut to_visit: Vec<String> = campaign_groups.iter().cloned().collect();
+
+        while let Some(group_key) = to_visit.pop() {
+            if let Some(items) = self.task_groups.get(&group_key) {
+                // Extract dependencies for this group
+                for item in items {
+                    if let TaskGroupEntry::Depends { depends } = item {
+                        for dep in depends {
+                            // Only process if it exists and hasn't been visited
+                            if all_group_keys.contains(dep) && !visited.contains(dep) {
+                                visited.insert(dep.clone());
+                                deps_to_add.push(dep.clone());
+                                to_visit.push(dep.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Resolve all task groups, expanding group references.
     /// If a campaign is specified, filters to only `task_groups` in that campaign.
-    /// Dependencies not in the campaign are filtered out with warnings.
+    /// When `lenient_campaign` is false (default), dependencies are auto-included in the campaign.
+    /// When `lenient_campaign` is true, dependencies not in the campaign are filtered out with warnings.
     /// Returns an error if dependencies reference non-existent groups or if there are cycles.
     #[allow(clippy::too_many_lines)]
     pub fn resolve_task_groups(
         &self,
         campaign: Option<&str>,
+        lenient_campaign: bool,
     ) -> anyhow::Result<Vec<crate::config::TaskGroup>> {
         // First pass: collect all group keys
         let group_keys: std::collections::HashSet<_> = self.task_groups.keys().collect();
 
         // Determine which task_groups to include (expanding campaign references)
-        let campaign_groups: Option<std::collections::HashSet<String>> = campaign
+        let mut campaign_groups: Option<std::collections::HashSet<String>> = campaign
             .map(|name| self.expand_campaign_targets(name, &group_keys))
             .transpose()?;
+
+        // When not lenient, auto-include all dependencies recursively
+        if !lenient_campaign
+            && let Some(ref mut cg) = campaign_groups
+        {
+            let mut deps_to_add: Vec<String> = Vec::new();
+            self.collect_all_dependencies(cg, &group_keys, &mut deps_to_add);
+            for dep in deps_to_add {
+                cg.insert(dep);
+            }
+        }
 
         let resolved_groups = self
             .task_groups
@@ -317,15 +360,16 @@ impl Config {
                 }
 
                 // Filter dependencies to only those in the campaign (if specified)
+                // In lenient mode, warn about missing dependencies; otherwise they were auto-included
                 let depends_on: Vec<_> = if let Some(ref cg) = campaign_groups {
                     original_depends_on
                         .into_iter()
                         .filter(|dep| {
                             let in_campaign = cg.contains(dep.as_str());
-                            if !in_campaign {
+                            if !in_campaign && lenient_campaign {
                                 eprintln!(
                                     "Warning: task_group '{group_key}' has dependency '{dep}' \
-                                     which is not in the campaign - potentially missing dependencies"
+                                     which is not in the campaign - skipping dependency"
                                 );
                             }
                             in_campaign

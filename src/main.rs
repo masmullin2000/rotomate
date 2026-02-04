@@ -40,6 +40,10 @@ enum Commands {
         #[arg(long)]
         campaign: Option<String>,
 
+        /// Lenient campaign mode: warn about missing dependencies but don't auto-include them
+        #[arg(long)]
+        lenient_campaign: bool,
+
         /// Show detailed output from each host (streams output in real-time)
         #[arg(short, long)]
         verbose: bool,
@@ -103,6 +107,7 @@ fn main() -> Result<()> {
             config,
             task,
             campaign,
+            lenient_campaign,
             verbose,
             capture_output,
             root,
@@ -114,6 +119,7 @@ fn main() -> Result<()> {
                 &config,
                 task,
                 campaign,
+                lenient_campaign,
                 verbose,
                 capture_output,
                 root,
@@ -188,11 +194,12 @@ fn prompt_password(prompt: &str) -> Result<String> {
     Ok(password)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::fn_params_excessive_bools)]
 async fn run_command(
     config_paths: &[PathBuf],
     task_name: Option<String>,
     campaign_name: Option<String>,
+    lenient_campaign: bool,
     verbose: bool,
     capture_output: bool,
     root: bool,
@@ -219,7 +226,9 @@ async fn run_command(
     let effective_campaign = determine_campaign(&raw_config.campaigns, campaign_name)?;
 
     // Resolve configuration with optional campaign filter
-    let mut config = config::Config::resolve(raw_config, effective_campaign.as_deref())?;
+    // When lenient_campaign is false (default), dependencies are auto-included
+    let mut config =
+        config::Config::resolve(raw_config, effective_campaign.as_deref(), lenient_campaign)?;
 
     // Check if we're running a local-only task (skip SSH/sudo prompts if so)
     let is_local_only_task = task_name.as_ref().is_some_and(|name| {

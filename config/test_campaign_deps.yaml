@@ -1,0 +1,38 @@
+# Test configuration for campaign dependency auto-inclusion
+#
+# Usage:
+#   Default (auto-include deps):  rot run config/test_campaign_deps.yaml
+#   Lenient (warn, skip deps):    rot run config/test_campaign_deps.yaml --lenient-campaign
+#
+# Expected behavior:
+#   - Default: both 'setup' and 'deploy' task_groups run (setup auto-included)
+#   - Lenient: only 'deploy' runs, with warning about missing 'setup' dependency
+---
+
+tasks:
+  setup_task:
+    description: "Setup task (dependency)"
+    local_command:
+      - echo "Running setup..."
+
+  deploy_task:
+    description: "Deploy task (depends on setup)"
+    local_command:
+      - echo "Running deploy..."
+
+task_groups:
+  setup:
+    - name: "Setup Phase"
+    - task: setup_task
+
+  deploy:
+    - name: "Deploy Phase"
+    - depends: [setup]
+    - task: deploy_task
+
+campaigns:
+  # Only lists 'deploy', but 'deploy' depends on 'setup'
+  partial: [deploy]
+
+  # Explicitly includes both
+  full: [setup, deploy]
