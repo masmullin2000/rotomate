@@ -1,0 +1,24 @@
+---
+# Test upload speed with a pre-created file (eliminates dd overhead)
+# First run: dd if=/dev/urandom of=/tmp/test_500mb.bin bs=1M count=500
+imports:
+  - hosts.yaml
+
+tasks:
+  upload_only:
+    description: "Upload pre-created 500MB test file"
+    stop_on_error: true
+    inactivity_timeout: 300
+    # local_command:
+    #   - dd if=/dev/urandom of=/tmp/test_500mb.bin bs=1M count=500 2>/dev/null || true
+    upload:
+      - "/tmp/test_500mb.bin /tmp/"
+    # remote_command:
+    #   - "ls -lh /tmp/test_500mb.bin"
+    #   - "rm /tmp/test_500mb.bin"
+
+task_groups:
+  upload_test:
+    - name: "500MB Upload (no file creation)"
+    - task: upload_only
+      hosts: rhel10
