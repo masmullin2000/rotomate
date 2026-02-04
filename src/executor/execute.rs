@@ -216,9 +216,30 @@ impl Executor {
             on_host_start("localhost", task_name, inactivity_timeout);
             let start_time = Instant::now();
 
+            // Render local commands with builtin context
+            let builtin = BuiltinContext {
+                host: "localhost".to_string(),
+                task_group: String::new(),
+                timestamp: self.timestamp.clone(),
+            };
+            let (local_cmd, template_error) =
+                render_local_commands(&task.local_command, &self.config.vars, &builtin);
+
+            // If template rendering failed, return error result
+            if let Some(err) = template_error {
+                let host_result = HostResult {
+                    host_name: "localhost".to_string(),
+                    result: Err(err),
+                };
+                on_host_complete(task_name, &host_result);
+                return Some(TaskExecution {
+                    task_name: task_name.to_string(),
+                    hosts: vec![host_result],
+                });
+            }
+
             // Execute host commands locally without needing a run
             // Use spawn_blocking to avoid blocking the async runtime
-            let local_cmd = task.local_command.clone();
             let stop_on_err = task.stop_on_error;
             let local_commands = tokio::task::spawn_blocking(move || {
                 execute_local_commands(&local_cmd, stop_on_err, verbose)
@@ -325,7 +346,22 @@ impl Executor {
                 task_group: task_group_name.to_string(),
                 timestamp: timestamp.to_string(),
             };
-            let local_cmd = render_local_commands(&task.local_command, &config.vars, &builtin);
+            let (local_cmd, template_error) =
+                render_local_commands(&task.local_command, &config.vars, &builtin);
+
+            // If template rendering failed, report error and stop
+            if let Some(err) = template_error {
+                let local_result = HostResult {
+                    host_name: "local".to_string(),
+                    result: Err(err),
+                };
+                on_host_complete(&task_item.task_name, &local_result);
+                host_results.push(local_result);
+                return TaskExecution {
+                    task_name: task_item.task_name.clone(),
+                    hosts: host_results,
+                };
+            }
 
             let stop_on_err = task.stop_on_error;
             let local_commands = tokio::task::spawn_blocking(move || {
@@ -421,7 +457,8 @@ impl Executor {
                     timestamp: timestamp.to_string(),
                 };
 
-                if let Ok(rendered) = RenderedTaskFields::try_new(
+                // Capture template rendering error to report later
+                let template_error = match RenderedTaskFields::try_new(
                     &config.vars,
                     host.context(),
                     &builtin,
@@ -430,15 +467,19 @@ impl Executor {
                     &task.upload,
                     &task.download,
                 ) {
-                    // Apply rendered fields to task
-                    task.remote_command = if rendered.remote_command.is_empty() {
-                        ExecCmdline::Empty
-                    } else {
-                        ExecCmdline::List(rendered.remote_command)
-                    };
-                    task.upload = rendered.upload;
-                    task.download = rendered.download;
-                }
+                    Ok(rendered) => {
+                        // Apply rendered fields to task
+                        task.remote_command = if rendered.remote_command.is_empty() {
+                            ExecCmdline::Empty
+                        } else {
+                            ExecCmdline::List(rendered.remote_command)
+                        };
+                        task.upload = rendered.upload;
+                        task.download = rendered.download;
+                        None
+                    }
+                    Err(e) => Some(e.to_string()),
+                };
 
                 // Clear local_command - already executed once before parallel host execution
                 task.local_command = ExecCmdline::Empty;
@@ -451,6 +492,14 @@ impl Executor {
                 let host_name_for_callback = host.ctx.name.clone();
 
                 async move {
+                    // Return error if template rendering failed
+                    if let Some(err) = template_error {
+                        return HostResult {
+                            host_name: host.ctx.name.clone(),
+                            result: Err(format!("Template rendering failed: {err}")),
+                        };
+                    }
+
                     debug!(
                         "Running task '{task}' on host '{host}'",
                         task = task.name,
@@ -484,11 +533,12 @@ impl Executor {
 }
 
 /// Render local commands with vars and builtin context.
+/// Returns (rendered commands, optional error message).
 fn render_local_commands(
     local_command: &ExecCmdline,
     vars: &HashMap<String, serde_yaml::Value>,
     builtin: &BuiltinContext,
-) -> ExecCmdline {
+) -> (ExecCmdline, Option<String>) {
     use minijinja::{Environment, Value};
 
     let commands: Vec<String> = local_command
@@ -498,7 +548,7 @@ fn render_local_commands(
         .collect();
 
     if commands.is_empty() {
-        return ExecCmdline::Empty;
+        return (ExecCmdline::Empty, None);
     }
 
     let env = Environment::build();
@@ -514,18 +564,27 @@ fn render_local_commands(
 
     let context = Value::from_serialize(&context_map);
 
-    // Render each command
+    // Render each command, collecting errors
+    let mut render_error: Option<String> = None;
     let rendered: Vec<String> = commands
         .iter()
         .map(|cmd| {
             if !cmd.contains("{{") && !cmd.contains("{%") {
                 return cmd.clone();
             }
-            env.render_str(cmd, &context).unwrap_or_else(|_| cmd.clone())
+            match env.render_str(cmd, &context) {
+                Ok(rendered) => rendered,
+                Err(e) => {
+                    if render_error.is_none() {
+                        render_error = Some(format!("Template rendering failed: {e}"));
+                    }
+                    cmd.clone()
+                }
+            }
         })
         .collect();
 
-    ExecCmdline::List(rendered)
+    (ExecCmdline::List(rendered), render_error)
 }
 
 /// Convert a `serde_yaml::Value` to minijinja Value.
