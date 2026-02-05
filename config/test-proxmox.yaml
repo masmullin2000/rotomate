@@ -3,15 +3,15 @@
 
 proxmox:
   url: https://vms:8006
-  token_id: mm@pam!raut
+  token_id: mm@pam!rot
   # remember to delete this before going public
-  token_secret: c90b7218-9e87-4e8a-ab0a-b42ec4c4dcd9
+  token_secret: c344e8e7-e0a8-491c-a991-a6178debc158
   verify_ssl: false # Set to true in production
   timeout: 60
 
 defaults:
   username: mm
-  private_key: ~/.ssh/id_ed25519
+  # private_key: ~/.ssh/id_ed25519
 
 hosts:
   rhel10:
@@ -19,13 +19,13 @@ hosts:
     proxmox:
       vmid: 110
       node: vm-host
-      snapshot: ephem2 # Default snapshot for rollback
+      snapshot: ephem # Default snapshot for rollback
   deb13:
     hostname: deb13
     proxmox:
       vmid: 111
       node: vm-host
-      snapshot: ephem2
+      snapshot: ephem
 
 groups:
   linux:

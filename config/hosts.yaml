@@ -11,7 +11,7 @@ hosts:
   rhel10:
     hostname: rhel10
     sudo_password: "."
-    private_key: ~/.ssh/id_ed25519
+    # private_key: ~/.ssh/id_ed25519
     proxmox:
       vmid: 110
       node: vm-host
@@ -20,7 +20,7 @@ hosts:
   deb13:
     hostname: deb13
     sudo_password: "."
-    private_key: ~/.ssh/id_ed25519
+    # private_key: ~/.ssh/id_ed25519
     proxmox:
       vmid: 111
       node: vm-host
