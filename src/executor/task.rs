@@ -28,33 +28,44 @@ async fn execute_uploads(
     let mut uploads = Vec::new();
 
     for copy_spec in upload {
-        let copy_result = match parse_copy_spec(copy_spec) {
-            Some((local_path, remote_path)) => session
+        log::debug!("Upload: parsing spec '{copy_spec}'");
+        let copy_result = if let Some((local_path, remote_path)) = parse_copy_spec(copy_spec) {
+            log::debug!("Upload: {local_path} -> {remote_path}");
+            session
                 .copy_file_to_remote(local_path, remote_path, DEFAULT_CHUNK_SIZE)
                 .await
                 .map_or_else(
-                    |e| CopyResult {
-                        local_path: local_path.to_string(),
-                        remote_path: remote_path.to_string(),
-                        result: Err(e.to_string()),
+                    |e| {
+                        log::debug!("Upload FAILED: {local_path} -> {remote_path}: {e:?}");
+                        CopyResult {
+                            local_path: local_path.to_string(),
+                            remote_path: remote_path.to_string(),
+                            result: Err(format!("{e:?}")),
+                        }
                     },
-                    |bytes| CopyResult {
-                        local_path: local_path.to_string(),
-                        remote_path: remote_path.to_string(),
-                        result: Ok(bytes),
+                    |bytes| {
+                        log::debug!("Upload OK: {local_path} -> {remote_path} ({bytes} bytes)");
+                        CopyResult {
+                            local_path: local_path.to_string(),
+                            remote_path: remote_path.to_string(),
+                            result: Ok(bytes),
+                        }
                     },
-                ),
-            None => CopyResult {
+                )
+        } else {
+            log::debug!("Upload FAILED: invalid copy spec '{copy_spec}'");
+            CopyResult {
                 local_path: copy_spec.clone(),
                 remote_path: String::new(),
                 result: Err(format!("Invalid copy spec: {copy_spec}")),
-            },
+            }
         };
 
         let failed = !copy_result.success();
         uploads.push(copy_result);
 
         if failed && stop_on_error {
+            log::debug!("Upload: stopping early due to failure");
             return uploads;
         }
     }
@@ -71,33 +82,44 @@ async fn execute_downloads(
     let mut downloads = Vec::new();
 
     for copy_spec in download {
-        let copy_result = match parse_copy_spec(copy_spec) {
-            Some((remote_path, local_path)) => session
+        log::debug!("Download: parsing spec '{copy_spec}'");
+        let copy_result = if let Some((remote_path, local_path)) = parse_copy_spec(copy_spec) {
+            log::debug!("Download: {remote_path} -> {local_path}");
+            session
                 .copy_file_from_remote(remote_path, local_path)
                 .await
                 .map_or_else(
-                    |e| CopyResult {
-                        local_path: local_path.to_string(),
-                        remote_path: remote_path.to_string(),
-                        result: Err(e.to_string()),
+                    |e| {
+                        log::debug!("Download FAILED: {remote_path} -> {local_path}: {e:?}");
+                        CopyResult {
+                            local_path: local_path.to_string(),
+                            remote_path: remote_path.to_string(),
+                            result: Err(format!("{e:?}")),
+                        }
                     },
-                    |bytes| CopyResult {
-                        local_path: local_path.to_string(),
-                        remote_path: remote_path.to_string(),
-                        result: Ok(bytes),
+                    |bytes| {
+                        log::debug!("Download OK: {remote_path} -> {local_path} ({bytes} bytes)");
+                        CopyResult {
+                            local_path: local_path.to_string(),
+                            remote_path: remote_path.to_string(),
+                            result: Ok(bytes),
+                        }
                     },
-                ),
-            None => CopyResult {
+                )
+        } else {
+            log::debug!("Download FAILED: invalid copy spec '{copy_spec}'");
+            CopyResult {
                 local_path: String::new(),
                 remote_path: copy_spec.clone(),
                 result: Err(format!("Invalid copy spec: {copy_spec}")),
-            },
+            }
         };
 
         let failed = !copy_result.success();
         downloads.push(copy_result);
 
         if failed && stop_on_error {
+            log::debug!("Download: stopping early due to failure");
             return downloads;
         }
     }

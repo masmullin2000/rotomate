@@ -20,8 +20,42 @@ use rotomate::output::OutputFormatter;
 #[command(name = "rot")]
 #[command(about = "SSH automation tool for running tasks across multiple hosts")]
 struct Cli {
+    /// Log level for rotomate output
+    #[arg(short = 'L', long, value_enum, global = true, default_value = "info")]
+    log_level: LogLevel,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Clone, Copy, ValueEnum, Default)]
+enum LogLevel {
+    /// Show errors only
+    Error,
+    /// Show warnings and errors
+    Warn,
+    /// Show info, warnings, and errors
+    #[default]
+    Info,
+    /// Show debug output (verbose)
+    Debug,
+    /// Show all log output (very verbose)
+    Trace,
+    /// Disable all logging
+    Off,
+}
+
+impl From<LogLevel> for log::LevelFilter {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Error => Self::Error,
+            LogLevel::Warn => Self::Warn,
+            LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
+            LogLevel::Trace => Self::Trace,
+            LogLevel::Off => Self::Off,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -95,12 +129,13 @@ enum ListType {
 }
 
 fn main() -> Result<()> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
-        .init();
-
     let cli = Cli::parse();
+
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Warn) // Default: only warnings from dependencies
+        .filter_module("rotomate", cli.log_level.into()) // rotomate logs at specified level
+        .parse_default_env() // Allow RUST_LOG to override
+        .init();
 
     match cli.command {
         Commands::Run {

@@ -330,15 +330,27 @@ impl Config {
                     .iter()
                     .find_map(|item| match item {
                         TaskGroupEntry::Name { name } => Some(name.clone()),
-                        TaskGroupEntry::Depends { .. } | TaskGroupEntry::TaskGroupItem(_) => None,
+                        TaskGroupEntry::Depends { .. }
+                        | TaskGroupEntry::Hosts(_)
+                        | TaskGroupEntry::TaskGroupItem(_) => None,
                     })
                     .unwrap_or_else(|| group_key.clone());
+
+                // Extract group-level default hosts (if specified)
+                let group_hosts = items.iter().find_map(|item| match item {
+                    TaskGroupEntry::Hosts(h) => Some(&h.hosts),
+                    TaskGroupEntry::Name { .. }
+                    | TaskGroupEntry::Depends { .. }
+                    | TaskGroupEntry::TaskGroupItem(_) => None,
+                });
 
                 let original_depends_on: Vec<_> = items
                     .iter()
                     .filter_map(|item| match item {
                         TaskGroupEntry::Depends { depends } => Some(depends.clone()),
-                        TaskGroupEntry::Name { .. } | TaskGroupEntry::TaskGroupItem(_) => None,
+                        TaskGroupEntry::Name { .. }
+                        | TaskGroupEntry::Hosts(_)
+                        | TaskGroupEntry::TaskGroupItem(_) => None,
                     })
                     .flatten()
                     .collect();
@@ -378,7 +390,9 @@ impl Config {
                     .iter()
                     .filter_map(|item| match item {
                         TaskGroupEntry::TaskGroupItem(task_item) => Some(task_item),
-                        TaskGroupEntry::Name { .. } | TaskGroupEntry::Depends { .. } => None,
+                        TaskGroupEntry::Name { .. }
+                        | TaskGroupEntry::Depends { .. }
+                        | TaskGroupEntry::Hosts(_) => None,
                     })
                     .map(|TaskGroupItem { task, hosts, .. }| {
                         if !self.tasks.contains_key(task) {
@@ -387,8 +401,11 @@ impl Config {
                             );
                         }
 
+                        // Use task-level hosts if specified, otherwise fall back to group-level hosts
+                        let effective_hosts = hosts.as_ref().or(group_hosts);
+
                         // hosts is optional - if None, this is a local-only task
-                        let host_names: Vec<_> = if let Some(host_ref) = hosts {
+                        let host_names: Vec<_> = if let Some(host_ref) = effective_hosts {
                             expand_host_ref(host_ref, self)
                                 .map(|name| {
                                     if !self.hosts.contains_key(&name) {
@@ -537,7 +554,7 @@ fn expand_host_ref(host_ref: &HostRef, config: &Config) -> Box<dyn Iterator<Item
     }
 }
 
-/// An entry in a task group - either the name declaration, dependencies, or a task item.
+/// An entry in a task group - either the name declaration, dependencies, default hosts, or a task item.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum TaskGroupEntry {
@@ -545,8 +562,18 @@ pub enum TaskGroupEntry {
     Name { name: String },
     /// Dependencies on other task groups (must complete before this group starts).
     Depends { depends: Vec<String> },
+    /// Default hosts for all tasks in this group (can be overridden per-task).
+    Hosts(TaskGroupHosts),
     /// A task to run on hosts.
     TaskGroupItem(TaskGroupItem),
+}
+
+/// Default hosts declaration for a task group.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskGroupHosts {
+    /// Target hosts - can be a group name, a single host, or a list.
+    pub hosts: HostRef,
 }
 
 /// Default values for host connections.

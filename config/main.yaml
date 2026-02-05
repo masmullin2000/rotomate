@@ -9,10 +9,8 @@ imports:
 task_groups:
   cat_passwd:
     - name: "cat passwd group"
-    - task: cat_passwd
-      hosts: all
-    - task: complexity
-      hosts: all
-    - task: less_complex
-      hosts: all
+    - hosts: all                 # default hosts for all tasks in this group
+    - task: cat_passwd           # inherits hosts: all
+    - task: complexity           # inherits hosts: all
+    - task: less_complex         # inherits hosts: all
 

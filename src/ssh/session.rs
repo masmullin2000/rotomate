@@ -237,6 +237,8 @@ impl Session {
             remote_path.to_string()
         };
 
+        debug!("SFTP upload: {} -> {}", local_path.display(), remote_path);
+
         let start = Instant::now();
         let contents = std::fs::read(local_path).map_err(|e| {
             anyhow::anyhow!(
@@ -256,27 +258,47 @@ impl Session {
 
         // Open SFTP channel
         let start = Instant::now();
-        let channel = self.session.channel_open_session().await?;
-        channel.request_subsystem(true, "sftp").await?;
-        let sftp = SftpSession::new(channel.into_stream()).await?;
+        let channel = self.session.channel_open_session().await.map_err(|e| {
+            debug!("SFTP: Failed to open channel: {e:?}");
+            e
+        })?;
+        channel.request_subsystem(true, "sftp").await.map_err(|e| {
+            debug!("SFTP: Failed to request subsystem: {e:?}");
+            e
+        })?;
+        let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| {
+            debug!("SFTP: Failed to create session: {e:?}");
+            e
+        })?;
         debug!("Opened SFTP session in {:?}", start.elapsed());
 
         // Create file and write contents using pipelined writes
         let start = Instant::now();
-        let mut remote_file = sftp.create(&remote_path).await?;
+        let mut remote_file = sftp.create(&remote_path).await.map_err(|e| {
+            debug!("SFTP: Failed to create remote file '{remote_path}': {e:?}");
+            e
+        })?;
         debug!("Created remote file in {:?}", start.elapsed());
 
         // Use pipelined writes for maximum throughput
         let start = Instant::now();
         remote_file
             .write_all_pipelined(contents, chunk_size)
-            .await?;
+            .await
+            .map_err(|e| {
+                debug!("SFTP: Failed to write to '{remote_path}': {e:?}");
+                e
+            })?;
         debug!("Wrote {} bytes in {:?}", file_size, start.elapsed());
 
         let start = Instant::now();
-        sftp.close().await?;
+        sftp.close().await.map_err(|e| {
+            debug!("SFTP: Failed to close session: {e:?}");
+            e
+        })?;
         debug!("Closed SFTP session in {:?}", start.elapsed());
 
+        debug!("SFTP upload complete: {} -> {} ({} bytes)", local_path.display(), remote_path, file_size);
         Ok(file_size as u64)
     }
 
