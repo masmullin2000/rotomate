@@ -32,7 +32,7 @@ tasks:
     description: "Read the file text.txt"
     become_root: true
     stop_on_error: true
-    inactivity_timeout: 60
+    timeout: 60
     remote_command:
       - cat ~/test.txt
       - sleep 10

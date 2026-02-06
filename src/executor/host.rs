@@ -74,7 +74,7 @@ impl Host {
                 .stopped_early(true)
                 .verbose(task.verbose.unwrap_or(false))
                 .capture_output(task.capture_output.unwrap_or(false))
-                .inactivity_timeout(task.inactivity_timeout())
+                .timeout(task.timeout())
                 .duration_secs(start_time.elapsed().as_secs_f64())
                 .proxmox(proxmox_results);
 
@@ -98,7 +98,7 @@ impl Host {
             let builder = super::TaskResult::builder(&task.name)
                 .verbose(task.verbose.unwrap_or(false))
                 .capture_output(task.capture_output.unwrap_or(false))
-                .inactivity_timeout(task.inactivity_timeout())
+                .timeout(task.timeout())
                 .duration_secs(start_time.elapsed().as_secs_f64())
                 .proxmox(proxmox_results);
 
@@ -131,7 +131,7 @@ impl Host {
             auth,
             &self.ctx.username,
             (self.ctx.hostname.as_str(), self.ctx.port),
-            task.inactivity_timeout(),
+            task.timeout(),
         )
         .await;
 

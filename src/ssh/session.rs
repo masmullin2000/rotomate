@@ -53,13 +53,13 @@ impl Session {
         auth: AuthMethod,
         user: impl Into<String>,
         addrs: A,
-        inactivity_timeout_secs: u64,
+        timeout_secs: u64,
     ) -> Result<Self>
     where
         A: ToSocketAddrs,
     {
         let config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs)),
+            inactivity_timeout: Some(Duration::from_secs(timeout_secs)),
             // Increase window size for better throughput (16MB)
             window_size: 16 * 1024 * 1024,
             // Request max packet size (32KB)
@@ -203,7 +203,7 @@ impl Session {
             }
         }
 
-        let exit_code = code.ok_or_else(|| anyhow::anyhow!("program did not exit cleanly"))?;
+        let exit_code = code.ok_or_else(|| anyhow::anyhow!("connection lost (inactivity timeout)"))?;
 
         Ok(CommandResult {
             command: command.to_string(),

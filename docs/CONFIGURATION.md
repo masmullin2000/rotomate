@@ -130,7 +130,7 @@ defaults:
   port: 22                        # SSH port (default: 22)
   username: deploy                # SSH username (default: current user)
   private_key: ~/.ssh/id_ed25519  # Path to SSH private key
-  inactivity_timeout: 15          # Seconds before SSH timeout (default: 15)
+  timeout: 15          # Seconds before SSH timeout (default: 15)
   os: linux                       # Operating system: linux or windows
   shell: sh                       # Shell type: sh, powershell, or cmd
 ```
@@ -219,7 +219,7 @@ tasks:
     description: "Deploy the application"
     stop_on_error: true           # Stop on first error (default: true)
     become_root: false            # Run commands as root via sudo
-    inactivity_timeout: 60        # Override default SSH timeout
+    timeout: 60        # Override default SSH timeout
     verbose: true                 # Stream output in real-time
     capture_output: true          # Display output when task completes
 
@@ -260,7 +260,7 @@ tasks:
 | `description` | string | "" | Human-readable description |
 | `stop_on_error` | boolean | true | Stop execution on first command failure |
 | `become_root` | boolean | false | Run remote commands as root via sudo |
-| `inactivity_timeout` | integer | 15 | SSH inactivity timeout in seconds |
+| `timeout` | integer | 15 | SSH inactivity timeout in seconds |
 | `verbose` | boolean | false | Stream command output in real-time |
 | `capture_output` | boolean | false | Display output when task completes |
 | `proxmox_command` | list | [] | Proxmox VM operations |
@@ -652,7 +652,7 @@ defaults:
   port: 22
   username: deploy
   private_key: ~/.ssh/deploy_key
-  inactivity_timeout: 30
+  timeout: 30
 
 task_groups:
   preparation:

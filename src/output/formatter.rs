@@ -66,10 +66,10 @@ impl OutputFormatter {
     }
 
     /// Print a task start marker for a host.
-    pub fn print_task_start(&self, host_name: &str, task_name: &str, inactivity_timeout: u64) {
+    pub fn print_task_start(&self, host_name: &str, task_name: &str, timeout: u64) {
         let color = self.colors.get(host_name).unwrap_or(&"white");
         let marker =
-            format!("#[{host_name}: START -> {task_name} (timeout: {inactivity_timeout}s)]#");
+            format!("#[{host_name}: START -> {task_name} (timeout: {timeout}s)]#");
         let colored = match *color {
             "cyan" => marker.cyan(),
             "green" => marker.green(),
@@ -291,14 +291,14 @@ impl OutputFormatter {
     pub fn print_detailed(&self, result: &TaskGroupResult) {
         for task_execution in &result.tasks {
             for host_result in &task_execution.hosts {
-                let inactivity_timeout = host_result
+                let timeout = host_result
                     .result
                     .as_ref()
-                    .map_or(0, |tr| tr.inactivity_timeout);
+                    .map_or(0, |tr| tr.timeout);
                 self.print_task_start(
                     &host_result.host_name,
                     &task_execution.task_name,
-                    inactivity_timeout,
+                    timeout,
                 );
                 self.print_host_detailed(host_result);
                 self.print_task_end(

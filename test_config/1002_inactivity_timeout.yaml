@@ -1,0 +1,35 @@
+# 1002 — Inactivity timeout
+#
+# Tests:
+#   - A command that sleeps beyond the default 15s timeout gets killed
+#   - The task reports failure with a timeout-related error
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/1002_timeout.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  sleep_too_long:
+    description: "Sleep 20s with 3s timeout — should fail"
+    timeout: 3
+    remote_command:
+      - echo "before sleep"
+      - sleep 20
+      - echo "after sleep"
+
+task_groups:
+  timeout_test:
+    - name: "Inactivity Timeout Test"
+    - task: sleep_too_long
+      hosts: localhost

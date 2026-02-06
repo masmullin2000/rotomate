@@ -258,6 +258,13 @@ where
         };
 
         let failed = !result.success();
+        if failed
+            && verbose
+            && let Some(cb) = on_output.as_mut()
+            && !result.stderr.is_empty()
+        {
+            cb(&result.stderr, true);
+        }
         commands.push(result);
 
         if failed && stop_on_error {
@@ -294,7 +301,7 @@ where
     let start_time = Instant::now();
     let verbose = task.verbose.unwrap_or(false);
     let capture_output = task.capture_output.unwrap_or(false);
-    let inactivity_timeout = task.inactivity_timeout();
+    let timeout = task.timeout();
 
     // If proxmox stopped early, return immediately with those results
     if proxmox_stopped_early {
@@ -310,7 +317,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -337,7 +344,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -357,7 +364,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -388,7 +395,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -408,7 +415,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -428,7 +435,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -449,7 +456,7 @@ where
         stopped_early,
         verbose,
         capture_output,
-        inactivity_timeout,
+        timeout,
         duration_secs: start_time.elapsed().as_secs_f64(),
     })
 }
@@ -474,7 +481,7 @@ where
     let start_time = Instant::now();
     let verbose = task.verbose.unwrap_or(false);
     let capture_output = task.capture_output.unwrap_or(false);
-    let inactivity_timeout = task.inactivity_timeout();
+    let timeout = task.timeout();
 
     let mut local_commands = Vec::new();
     let mut uploads = Vec::new();
@@ -498,7 +505,7 @@ where
             stopped_early: true,
             verbose,
             capture_output,
-            inactivity_timeout,
+            timeout,
             duration_secs: start_time.elapsed().as_secs_f64(),
         });
     }
@@ -590,7 +597,7 @@ where
         stopped_early,
         verbose,
         capture_output,
-        inactivity_timeout,
+        timeout,
         duration_secs: start_time.elapsed().as_secs_f64(),
     })
 }

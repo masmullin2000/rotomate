@@ -8,7 +8,7 @@ tasks:
   upload_only:
     description: "Upload pre-created 500MB test file"
     stop_on_error: true
-    inactivity_timeout: 300
+    timeout: 300
     # local_command:
     #   - dd if=/dev/urandom of=/tmp/test_500mb.bin bs=1M count=500 2>/dev/null || true
     upload:

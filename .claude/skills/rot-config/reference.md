@@ -21,7 +21,7 @@ defaults:
   port: 22
   username: deploy
   private_key: ~/.ssh/id_ed25519
-  inactivity_timeout: 15
+  timeout: 15
   os: linux              # linux | windows
   shell: sh              # sh | powershell | cmd
 ```
@@ -68,7 +68,7 @@ tasks:
     description: "What this does"
     stop_on_error: true       # Default: true
     become_root: false        # Run as root via sudo
-    inactivity_timeout: 60    # SSH timeout override
+    timeout: 60    # SSH timeout override
     verbose: true             # Stream output
     capture_output: true      # Show output when done
 

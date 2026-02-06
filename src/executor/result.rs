@@ -81,7 +81,7 @@ pub struct TaskResult {
     /// Whether output should be captured and displayed when task completes.
     pub capture_output: bool,
     /// Inactivity timeout in seconds.
-    pub inactivity_timeout: u64,
+    pub timeout: u64,
     /// Duration of task execution in seconds.
     pub duration_secs: f64,
 }
@@ -129,7 +129,7 @@ pub struct TaskResultBuilder {
     stopped_early: bool,
     verbose: bool,
     capture_output: bool,
-    inactivity_timeout: u64,
+    timeout: u64,
     duration_secs: f64,
 }
 
@@ -203,8 +203,8 @@ impl TaskResultBuilder {
     }
 
     /// Sets the inactivity timeout in seconds.
-    pub const fn inactivity_timeout(mut self, inactivity_timeout: u64) -> Self {
-        self.inactivity_timeout = inactivity_timeout;
+    pub const fn timeout(mut self, timeout: u64) -> Self {
+        self.timeout = timeout;
         self
     }
 
@@ -228,7 +228,7 @@ impl TaskResultBuilder {
             stopped_early: self.stopped_early,
             verbose: self.verbose,
             capture_output: self.capture_output,
-            inactivity_timeout: self.inactivity_timeout,
+            timeout: self.timeout,
             duration_secs: self.duration_secs,
         }
     }

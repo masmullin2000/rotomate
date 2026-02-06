@@ -374,6 +374,20 @@ test_11() {
     end_test
 }
 
+test_1002() {
+    begin_test "1002 timeout — sleep beyond default timeout"
+
+    local out
+    out=$(run_rot "$SCRIPT_DIR/1002_inactivity_timeout.yaml" -v) || true
+
+    assert_contains "before sleep ran" "$out" "before sleep"
+    assert_not_contains "after sleep (timed out)" "$out" "after sleep"
+    assert_contains "timeout error" "$out" "inactivity timeout"
+    assert_contains "task failed" "$out" "FAILED"
+
+    end_test
+}
+
 # --- Main ---
 
 echo ""
@@ -434,6 +448,7 @@ if should_run "07"; then test_07; fi
 
 if should_run "11"; then test_11; fi
 if should_run "1001"; then test_1001; fi
+if should_run "1002"; then test_1002; fi
 
 # Test 10 (sudo) is always skipped in automated runs
 if should_run "10"; then

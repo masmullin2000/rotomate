@@ -67,11 +67,8 @@ test-upload-debug count="100":
     RUST_LOG=debug cargo run --release -- config/upload_test.yaml 2>&1
 
 # Run integration tests (optionally pass test numbers to filter)
-integ *ARGS: (build "debug" "musl")
+smoke *ARGS: (build "debug" "musl")
     ./test_config/run_tests.sh {{ ARGS }}
-
-# Run all integration tests
-integration-full: (integ)
 
 # Test upload with debug build (slow, for debugging only)
 test-upload-debug-build count="100":

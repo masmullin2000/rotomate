@@ -341,8 +341,8 @@ async fn run_command(
     );
 
     // Callback to print when a host starts a task
-    let on_host_start = |host_name: &str, task_name: &str, inactivity_timeout: u64| {
-        formatter.print_task_start(host_name, task_name, inactivity_timeout);
+    let on_host_start = |host_name: &str, task_name: &str, timeout: u64| {
+        formatter.print_task_start(host_name, task_name, timeout);
     };
 
     // Callback to print results as each host completes
@@ -435,14 +435,14 @@ fn write_captured_output_to_file(
         for task_execution in &result.tasks {
             for host_result in &task_execution.hosts {
                 // Write task start marker
-                let inactivity_timeout = host_result
+                let timeout = host_result
                     .result
                     .as_ref()
-                    .map_or(0, |tr| tr.inactivity_timeout);
+                    .map_or(0, |tr| tr.timeout);
                 writeln!(
                     file,
                     "#[{}: START -> {} (timeout: {}s)]#",
-                    host_result.host_name, task_execution.task_name, inactivity_timeout
+                    host_result.host_name, task_execution.task_name, timeout
                 )?;
 
                 // Write host output

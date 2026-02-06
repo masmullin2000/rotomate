@@ -214,11 +214,11 @@ impl Executor {
 
         let verbose = task.verbose.unwrap_or(false) || self.verbose;
         let capture_output = task.capture_output.unwrap_or(false) || self.capture_output;
-        let inactivity_timeout = task.inactivity_timeout();
+        let timeout = task.timeout();
 
         if is_local_only {
             // Notify start
-            on_host_start("localhost", task_name, inactivity_timeout);
+            on_host_start("localhost", task_name, timeout);
             let start_time = Instant::now();
 
             // Render local commands with builtin context
@@ -265,7 +265,7 @@ impl Executor {
                 stopped_early,
                 verbose,
                 capture_output,
-                inactivity_timeout,
+                timeout,
                 duration_secs: start_time.elapsed().as_secs_f64(),
             };
 
@@ -337,13 +337,13 @@ impl Executor {
         let mut host_results = Vec::new();
         let verbose = task.verbose.unwrap_or(false) || global_verbose;
         let capture_output = task.capture_output.unwrap_or(false) || global_capture_output;
-        let inactivity_timeout = task.inactivity_timeout();
+        let timeout = task.timeout();
 
         // Run local commands once (not per-host) — skip when using steps
         // (local_command is part of steps and runs per-host)
         // Use spawn_blocking to avoid blocking the async runtime
         if !task.has_steps() && !task.local_command.is_empty() {
-            on_host_start("local", &task_item.task_name, inactivity_timeout);
+            on_host_start("local", &task_item.task_name, timeout);
             let start_time = Instant::now();
 
             // Render local commands with builtin context
@@ -391,7 +391,7 @@ impl Executor {
                     stopped_early,
                     verbose,
                     capture_output,
-                    inactivity_timeout,
+                    timeout,
                     duration_secs: start_time.elapsed().as_secs_f64(),
                 }),
             };
@@ -433,7 +433,7 @@ impl Executor {
             .hosts(task_item)
             .map(|host| {
                 // Notify host start before launching async execution
-                on_host_start(&host.ctx.name, &task_item.task_name, inactivity_timeout);
+                on_host_start(&host.ctx.name, &task_item.task_name, timeout);
 
                 let mut task = task.clone();
                 // Use host-specific sudo password if set, otherwise fall back to global

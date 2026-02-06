@@ -589,7 +589,8 @@ pub struct Defaults {
     pub private_key: Option<PathBuf>,
 
     /// SSH inactivity timeout in seconds (default: 15).
-    pub inactivity_timeout: Option<u64>,
+    #[serde(alias = "inactivity_timeout")]
+    pub timeout: Option<u64>,
 
     /// Default OS type (linux or windows).
     pub os: Option<OsType>,
@@ -611,8 +612,8 @@ impl Defaults {
         if other.private_key.is_some() {
             self.private_key = other.private_key;
         }
-        if other.inactivity_timeout.is_some() {
-            self.inactivity_timeout = other.inactivity_timeout;
+        if other.timeout.is_some() {
+            self.timeout = other.timeout;
         }
         if other.os.is_some() {
             self.os = other.os;
@@ -795,8 +796,9 @@ pub struct Task {
     #[serde(default)]
     pub become_root: bool,
 
-    /// SSH inactivity timeout in seconds (overrides global default).
-    pub inactivity_timeout: Option<u64>,
+    /// SSH timeout in seconds (overrides global default).
+    #[serde(alias = "inactivity_timeout")]
+    pub timeout: Option<u64>,
 
     /// Proxmox VM commands to execute (e.g., "snapshot pre-deploy", "rollback clean-state").
     /// These execute first, before any other operations.
@@ -861,9 +863,9 @@ impl Task {
         !self.steps.is_empty()
     }
 
-    pub fn inactivity_timeout(&self) -> u64 {
+    pub fn timeout(&self) -> u64 {
         const DEFAULT: u64 = 15;
-        self.inactivity_timeout.unwrap_or(DEFAULT)
+        self.timeout.unwrap_or(DEFAULT)
     }
 
     /// Validate that flat operation fields are not mixed with `steps`.

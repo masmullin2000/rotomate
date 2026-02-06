@@ -71,7 +71,7 @@ tasks:
     description: "Read the file text.txt"
     become_root: true
     stop_on_error: true
-    inactivity_timeout: 60
+    timeout: 60
     verbose: true
     remote_command:
       - cat /home/mm/test.txt

@@ -28,7 +28,7 @@ pub struct Config {
     /// Task groups - each group executes in parallel, tasks within a group execute sequentially.
     pub task_groups: Vec<TaskGroup>,
     /// SSH inactivity timeout in seconds.
-    pub inactivity_timeout: u64,
+    pub timeout: u64,
     /// Template variables for runtime rendering.
     pub vars: HashMap<String, serde_yaml::Value>,
     /// Available campaigns (for listing and selection purposes).
@@ -72,7 +72,7 @@ impl Config {
         let hosts: HashMap<_, _> = config.resolve_hosts().collect::<anyhow::Result<_>>()?;
         let task_groups = config.resolve_task_groups(campaign, lenient_campaign)?;
         let tasks = config.tasks;
-        let inactivity_timeout = config.defaults.inactivity_timeout.unwrap_or(15);
+        let timeout = config.defaults.timeout.unwrap_or(15);
         let vars = config.vars;
         let campaigns = config.campaigns;
         let hosts_source = config.hosts_source;
@@ -84,7 +84,7 @@ impl Config {
             hosts,
             tasks,
             task_groups,
-            inactivity_timeout,
+            timeout,
             vars,
             campaigns,
             hosts_source,

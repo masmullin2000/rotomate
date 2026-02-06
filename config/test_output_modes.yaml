@@ -12,7 +12,7 @@ tasks:
   # Local-only task to test local command output capture
   test_local:
     description: Test local command output modes
-    inactivity_timeout: 120
+    timeout: 120
     local_command:
       - echo "Line 1 from local"
       - echo "Line 2 from local"
