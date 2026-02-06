@@ -1,0 +1,74 @@
+# 09 — Validation and listing (no execution)
+#
+# Tests:
+#   - --check validates config without executing
+#   - --list all   lists everything
+#   - --list hosts lists hosts
+#   - --list tasks lists tasks
+#   - --list groups lists groups
+#   - --list campaigns lists campaigns
+#
+# Run:
+#   rot test_config/09_check_and_list.yaml --check
+#   rot test_config/09_check_and_list.yaml --list all
+#   rot test_config/09_check_and_list.yaml --list hosts
+#   rot test_config/09_check_and_list.yaml --list tasks
+#   rot test_config/09_check_and_list.yaml --list groups
+#   rot test_config/09_check_and_list.yaml --list campaigns
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  alpha:
+    hostname: 10.0.0.1
+  bravo:
+    hostname: 10.0.0.2
+  charlie:
+    hostname: 10.0.0.3
+
+groups:
+  frontends: [alpha, bravo]
+  backends: [charlie]
+  everything: [alpha, bravo, charlie]
+
+tasks:
+  ping:
+    description: "Ping test"
+    remote_command:
+      - echo pong
+
+  deploy:
+    description: "Deploy application"
+    remote_command:
+      - echo deploying
+
+  rollback:
+    description: "Rollback application"
+    remote_command:
+      - echo rolling back
+
+task_groups:
+  infra_check:
+    - name: "Infrastructure Check"
+    - hosts: everything
+    - task: ping
+
+  app_deploy:
+    - name: "Application Deploy"
+    - depends: [infra_check]
+    - hosts: frontends
+    - task: deploy
+
+  app_rollback:
+    - name: "Application Rollback"
+    - hosts: frontends
+    - task: rollback
+
+campaigns:
+  deploy_pipeline: [infra_check, app_deploy]
+  rollback_pipeline: [app_rollback]
+  full: [infra_check, app_deploy, app_rollback]

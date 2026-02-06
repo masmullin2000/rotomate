@@ -8,7 +8,7 @@ use tokio::sync::watch;
 
 use crate::config::template::EnvironmentExt;
 use crate::config::{
-    BuiltinContext, Config, ExecCmdline, RenderedTaskFields, TaskGroup, TaskGroupItem,
+    BuiltinContext, Config, ExecCmdline, RenderedTaskFields, TaskGroup, TaskGroupItem, render_steps,
 };
 use crate::output::OutputFormatter;
 use crate::proxmox::ProxmoxClient;
@@ -201,11 +201,16 @@ impl Executor {
         let task = self.config.get_task(task_name)?;
 
         // Check if task is local-only (only local_command, no remote operations, no proxmox)
-        let is_local_only = !task.local_command.is_empty()
-            && task.proxmox_command.is_empty()
-            && task.remote_command.is_empty()
-            && task.upload.is_empty()
-            && task.download.is_empty();
+        let is_local_only = if task.has_steps() {
+            task.proxmox_command.is_empty()
+                && task.steps.iter().all(crate::config::TaskStep::is_local)
+        } else {
+            !task.local_command.is_empty()
+                && task.proxmox_command.is_empty()
+                && task.remote_command.is_empty()
+                && task.upload.is_empty()
+                && task.download.is_empty()
+        };
 
         let verbose = task.verbose.unwrap_or(false) || self.verbose;
         let capture_output = task.capture_output.unwrap_or(false) || self.capture_output;
@@ -334,9 +339,10 @@ impl Executor {
         let capture_output = task.capture_output.unwrap_or(false) || global_capture_output;
         let inactivity_timeout = task.inactivity_timeout();
 
-        // Run local commands once (not per-host)
+        // Run local commands once (not per-host) — skip when using steps
+        // (local_command is part of steps and runs per-host)
         // Use spawn_blocking to avoid blocking the async runtime
-        if !task.local_command.is_empty() {
+        if !task.has_steps() && !task.local_command.is_empty() {
             on_host_start("local", &task_item.task_name, inactivity_timeout);
             let start_time = Instant::now();
 
@@ -403,11 +409,16 @@ impl Executor {
         }
 
         // Check if task has any remote operations - if not, skip host execution entirely
-        let has_remote_ops = !task.remote_command.is_empty()
-            || !task.upload.is_empty()
-            || !task.download.is_empty()
-            || !task.delete_remote.is_empty()
-            || !task.proxmox_command.is_empty();
+        let has_remote_ops = if task.has_steps() {
+            task.steps.iter().any(crate::config::TaskStep::needs_ssh)
+                || !task.proxmox_command.is_empty()
+        } else {
+            !task.remote_command.is_empty()
+                || !task.upload.is_empty()
+                || !task.download.is_empty()
+                || !task.delete_remote.is_empty()
+                || !task.proxmox_command.is_empty()
+        };
 
         if !has_remote_ops {
             return TaskExecution {
@@ -458,31 +469,45 @@ impl Executor {
                 };
 
                 // Capture template rendering error to report later
-                let template_error = match RenderedTaskFields::try_new(
-                    &config.vars,
-                    host.context(),
-                    &builtin,
-                    &remote_commands,
-                    &local_commands,
-                    &task.upload,
-                    &task.download,
-                ) {
-                    Ok(rendered) => {
-                        // Apply rendered fields to task
-                        task.remote_command = if rendered.remote_command.is_empty() {
-                            ExecCmdline::Empty
-                        } else {
-                            ExecCmdline::List(rendered.remote_command)
-                        };
-                        task.upload = rendered.upload;
-                        task.download = rendered.download;
-                        None
+                let template_error = if task.has_steps() {
+                    // Render steps with host + builtin context
+                    match render_steps(&config.vars, host.context(), &builtin, &task.steps) {
+                        Ok(rendered_steps) => {
+                            task.steps = rendered_steps;
+                            None
+                        }
+                        Err(e) => Some(e.to_string()),
                     }
-                    Err(e) => Some(e.to_string()),
+                } else {
+                    match RenderedTaskFields::try_new(
+                        &config.vars,
+                        host.context(),
+                        &builtin,
+                        &remote_commands,
+                        &local_commands,
+                        &task.upload,
+                        &task.download,
+                    ) {
+                        Ok(rendered) => {
+                            // Apply rendered fields to task
+                            task.remote_command = if rendered.remote_command.is_empty() {
+                                ExecCmdline::Empty
+                            } else {
+                                ExecCmdline::List(rendered.remote_command)
+                            };
+                            task.upload = rendered.upload;
+                            task.download = rendered.download;
+                            None
+                        }
+                        Err(e) => Some(e.to_string()),
+                    }
                 };
 
                 // Clear local_command - already executed once before parallel host execution
-                task.local_command = ExecCmdline::Empty;
+                // (not needed for steps tasks - local_command runs per-host via steps)
+                if !task.has_steps() {
+                    task.local_command = ExecCmdline::Empty;
+                }
 
                 let host = host.clone();
                 let proxmox_client = proxmox_client.cloned();

@@ -64,6 +64,11 @@ impl Config {
         campaign: Option<&str>,
         lenient_campaign: bool,
     ) -> anyhow::Result<Self> {
+        // Validate tasks (e.g., no mixing steps with flat fields)
+        for (name, task) in &config.tasks {
+            task.validate(name)?;
+        }
+
         let hosts: HashMap<_, _> = config.resolve_hosts().collect::<anyhow::Result<_>>()?;
         let task_groups = config.resolve_task_groups(campaign, lenient_campaign)?;
         let tasks = config.tasks;

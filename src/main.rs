@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -19,13 +19,47 @@ use rotomate::output::OutputFormatter;
 #[derive(Parser)]
 #[command(name = "rot")]
 #[command(about = "SSH automation tool for running tasks across multiple hosts")]
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
+    /// Path to YAML configuration file(s)
+    #[arg(required = true)]
+    config: Vec<PathBuf>,
+
     /// Log level for rotomate output
-    #[arg(short = 'L', long, value_enum, global = true, default_value = "info")]
+    #[arg(short = 'L', long, value_enum, default_value = "info")]
     log_level: LogLevel,
 
-    #[command(subcommand)]
-    command: Commands,
+    /// Validate configuration file(s) without executing
+    #[arg(long)]
+    check: bool,
+
+    /// List hosts, tasks, groups, or campaigns from configuration
+    #[arg(long, value_enum)]
+    list: Option<ListType>,
+
+    /// Run only a specific task (by name)
+    #[arg(short, long)]
+    task: Option<String>,
+
+    /// Run only `task_groups` in the specified campaign
+    #[arg(long, short)]
+    campaign: Option<String>,
+
+    /// Lenient campaign mode: warn about missing dependencies but don't auto-include them
+    #[arg(long, short)]
+    lenient_campaign: bool,
+
+    /// Show detailed output from each host (streams output in real-time)
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Capture output: "std" to display after completion, or a file path to write to
+    #[arg(short = 'o', long)]
+    capture_output: Option<String>,
+
+    /// Prompt for sudo password (required for tasks with `become_root: true`)
+    #[arg(long)]
+    root: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum, Default)]
@@ -58,62 +92,6 @@ impl From<LogLevel> for log::LevelFilter {
     }
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Run tasks from configuration file(s)
-    Run {
-        /// Path to YAML configuration file(s)
-        #[arg(required = true)]
-        config: Vec<PathBuf>,
-
-        /// Run only a specific task (by name)
-        #[arg(short, long)]
-        task: Option<String>,
-
-        /// Run only `task_groups` in the specified campaign
-        #[arg(long, short)]
-        campaign: Option<String>,
-
-        /// Lenient campaign mode: warn about missing dependencies but don't auto-include them
-        #[arg(long, short)]
-        lenient_campaign: bool,
-
-        /// Show detailed output from each host (streams output in real-time)
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Capture output: "std" to display after completion, or a file path to write to
-        #[arg(short = 'o', long)]
-        capture_output: Option<String>,
-
-        /// Prompt for sudo password (required for tasks with `become_root: true`)
-        #[arg(long)]
-        root: bool,
-    },
-
-    /// Validate configuration file(s) without executing
-    Check {
-        /// Path to YAML configuration file(s)
-        #[arg(required = true)]
-        config: Vec<PathBuf>,
-    },
-
-    /// List hosts, tasks, or run groups from configuration
-    List {
-        /// Path to YAML configuration file(s)
-        #[arg(required = true)]
-        config: Vec<PathBuf>,
-
-        /// What to list
-        #[arg(value_enum)]
-        what: ListType,
-
-        /// Show source file for each item
-        #[arg(short, long)]
-        verbose: bool,
-    },
-}
-
 #[derive(Clone, Copy, ValueEnum)]
 enum ListType {
     /// List everything (hosts, tasks, groups, campaigns)
@@ -137,35 +115,23 @@ fn main() -> Result<()> {
         .parse_default_env() // Allow RUST_LOG to override
         .init();
 
-    match cli.command {
-        Commands::Run {
-            config,
-            task,
-            campaign,
-            lenient_campaign,
-            verbose,
-            capture_output,
-            root,
-        } => {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            runtime.block_on(run_command(
-                &config,
-                task,
-                campaign,
-                lenient_campaign,
-                verbose,
-                capture_output,
-                root,
-            ))
-        }
-        Commands::Check { config } => check_command(&config),
-        Commands::List {
-            config,
-            what,
-            verbose,
-        } => list_command(&config, what, verbose),
+    if cli.check {
+        check_command(&cli.config)
+    } else if let Some(what) = cli.list {
+        list_command(&cli.config, what, cli.verbose)
+    } else {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime.block_on(run_command(
+            &cli.config,
+            cli.task,
+            cli.campaign,
+            cli.lenient_campaign,
+            cli.verbose,
+            cli.capture_output,
+            cli.root,
+        ))
     }
 }
 
@@ -268,11 +234,16 @@ async fn run_command(
     // Check if we're running a local-only task (skip SSH/sudo prompts if so)
     let is_local_only_task = task_name.as_ref().is_some_and(|name| {
         config.tasks.get(name).is_some_and(|task| {
-            !task.local_command.is_empty()
-                && task.proxmox_command.is_empty()
-                && task.remote_command.is_empty()
-                && task.upload.is_empty()
-                && task.download.is_empty()
+            if task.has_steps() {
+                task.proxmox_command.is_empty()
+                    && task.steps.iter().all(rotomate::config::TaskStep::is_local)
+            } else {
+                !task.local_command.is_empty()
+                    && task.proxmox_command.is_empty()
+                    && task.remote_command.is_empty()
+                    && task.upload.is_empty()
+                    && task.download.is_empty()
+            }
         })
     });
 
@@ -535,10 +506,15 @@ fn check_command(config_paths: &[PathBuf]) -> Result<()> {
     println!();
     println!("Tasks ({}):", resolved.tasks.len());
     for (name, task) in &resolved.tasks {
+        let ops_info = if task.has_steps() {
+            format!("{} step(s)", task.steps.len())
+        } else {
+            format!("{} command(s)", task.remote_command.len())
+        };
         println!(
-            "  - {}: {} command(s){}",
+            "  - {}: {}{}",
             name,
-            task.remote_command.len(),
+            ops_info,
             if task.description.is_empty() {
                 String::new()
             } else {

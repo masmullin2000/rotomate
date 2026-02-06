@@ -85,10 +85,14 @@ impl Host {
         }
 
         // Check if task has any SSH operations - if not, return with just proxmox results
-        let needs_ssh = !task.remote_command.is_empty()
-            || !task.upload.is_empty()
-            || !task.download.is_empty()
-            || !task.delete_remote.is_empty();
+        let needs_ssh = if task.has_steps() {
+            task.steps.iter().any(crate::config::TaskStep::needs_ssh)
+        } else {
+            !task.remote_command.is_empty()
+                || !task.upload.is_empty()
+                || !task.download.is_empty()
+                || !task.delete_remote.is_empty()
+        };
 
         if !needs_ssh {
             let builder = super::TaskResult::builder(&task.name)
@@ -155,16 +159,29 @@ impl Host {
         };
 
         // Execute the task with the appropriate shell and privilege settings
-        let task_result = task::execute_task(
-            &mut session,
-            task,
-            self.ctx.shell,
-            privilege_password,
-            proxmox_results,
-            false, // proxmox didn't stop early (we checked above)
-            on_output,
-        )
-        .await;
+        let task_result = if task.has_steps() {
+            task::execute_task_with_steps(
+                &mut session,
+                task,
+                self.ctx.shell,
+                privilege_password,
+                proxmox_results,
+                false, // proxmox didn't stop early (we checked above)
+                on_output,
+            )
+            .await
+        } else {
+            task::execute_task(
+                &mut session,
+                task,
+                self.ctx.shell,
+                privilege_password,
+                proxmox_results,
+                false, // proxmox didn't stop early (we checked above)
+                on_output,
+            )
+            .await
+        };
 
         // Close the session
         let _ = session.close().await;

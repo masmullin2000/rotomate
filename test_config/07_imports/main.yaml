@@ -1,0 +1,29 @@
+# 07 — Config merging and imports
+#
+# Tests:
+#   - imports: merging hosts from hosts.yaml
+#   - imports: merging tasks and vars from tasks.yaml
+#   - Task groups defined here use imported hosts and tasks
+#   - Validates that all references resolve correctly
+#
+# Run:
+#   rot test_config/07_imports/main.yaml -v
+---
+
+imports:
+  - hosts.yaml
+  - tasks.yaml
+
+tasks:
+  local_check:
+    description: "Local task defined in main.yaml (uses imported var)"
+    local_command:
+      - 'echo "App name from imported vars: {{ app_name }}"'
+
+task_groups:
+  imports_test:
+    - name: "Import Merge Tests"
+    - hosts: all_servers
+    - task: greet
+    - task: info
+    - task: local_check

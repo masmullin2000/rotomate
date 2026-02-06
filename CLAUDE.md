@@ -20,13 +20,14 @@ just check                      # Check without building
 ## Running the Application
 
 ```bash
-just run -- run -c config/main.yaml         # Run with config file
-just run -- run -c config/main.yaml -v      # Verbose output
-just run -- run -c config/main.yaml --root  # Prompt for sudo password
-just run -- check -c config/main.yaml       # Validate config without executing
+just run -- config/main.yaml              # Run with config file
+just run -- config/main.yaml -v           # Verbose output
+just run -- config/main.yaml --root       # Prompt for sudo password
+just run -- config/main.yaml --check      # Validate config without executing
+just run -- config/main.yaml --list all   # List hosts, tasks, groups, campaigns
 
 # Multiple config files (merged in order)
-just run -- run -c config/hosts.yaml -c config/tasks.yaml -c config/runs.yaml
+just run -- config/hosts.yaml config/tasks.yaml config/runs.yaml
 ```
 
 ## Architecture

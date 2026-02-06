@@ -127,6 +127,6 @@ Write the generated configuration to the appropriate file(s) in the user's proje
 
 After generating, remind users how to validate and run:
 ```bash
-rot check -c config/main.yaml    # Validate
-rot run -c config/main.yaml -v   # Run with verbose output
+rot config/main.yaml --check     # Validate
+rot config/main.yaml -v          # Run with verbose output
 ```

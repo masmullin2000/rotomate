@@ -1,0 +1,75 @@
+# 04 — Host groups and task group features
+#
+# Tests:
+#   - Multiple "hosts" (localhost aliases with different names)
+#   - groups: combining hosts
+#   - Task group hosts: inheritance (group-level default hosts)
+#   - Task-level hosts: override
+#   - depends: between task groups
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/04_groups_and_hosts.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  web1:
+    hostname: 127.0.0.1
+  web2:
+    hostname: 127.0.0.1
+  db1:
+    hostname: 127.0.0.1
+
+groups:
+  webservers: [web1, web2]
+  databases: [db1]
+  all_servers: [web1, web2, db1]
+
+tasks:
+  identify:
+    description: "Print which host this is running on"
+    remote_command:
+      - echo "I am {{ host.name }} ({{ host.hostname }})"
+
+  setup:
+    description: "Simulate setup step"
+    remote_command:
+      - echo "Setup complete on {{ host.name }}"
+
+  deploy:
+    description: "Simulate deploy step"
+    remote_command:
+      - echo "Deployed to {{ host.name }}"
+
+  verify:
+    description: "Simulate verification"
+    remote_command:
+      - echo "Verified on {{ host.name }}"
+
+task_groups:
+  # Group-level hosts: all tasks inherit "all_servers"
+  setup_phase:
+    - name: "Setup Phase"
+    - hosts: all_servers
+    - task: identify
+    - task: setup
+
+  # depends on setup_phase; group-level hosts = webservers
+  deploy_phase:
+    - name: "Deploy Phase"
+    - depends: [setup_phase]
+    - hosts: webservers
+    - task: deploy
+
+  # Task-level hosts override: verify runs on databases only
+  verify_phase:
+    - name: "Verify Phase"
+    - depends: [deploy_phase]
+    - task: verify
+      hosts: databases

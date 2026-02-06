@@ -1,0 +1,51 @@
+# 02 — Remote command execution on localhost
+#
+# Tests:
+#   - defaults (username, private_key, port)
+#   - Single host definition (localhost → 127.0.0.1)
+#   - remote_command list
+#   - host.* context variables (host.name, host.hostname, host.username)
+#   - builtin.* variables (builtin.host, builtin.task_group, builtin.timestamp)
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/02_remote_commands.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  basic_remote:
+    description: "Basic remote commands"
+    remote_command:
+      - uname -a
+      - hostname
+      - whoami
+      - 'echo "Current dir: $(pwd)"'
+
+  context_variables:
+    description: "Test host.* and builtin.* template variables"
+    remote_command:
+      - echo "host.name       = {{ host.name }}"
+      - echo "host.hostname   = {{ host.hostname }}"
+      - echo "host.username   = {{ host.username }}"
+      - echo "host.port       = {{ host.port }}"
+      - echo "builtin.host    = {{ builtin.host }}"
+      - echo "builtin.task_group = {{ builtin.task_group }}"
+      - echo "builtin.timestamp  = {{ builtin.timestamp }}"
+
+task_groups:
+  remote_basics:
+    - name: "Remote Command Basics"
+    - task: basic_remote
+      hosts: localhost
+    - task: context_variables
+      hosts: localhost

@@ -100,12 +100,42 @@ impl OutputFormatter {
 
         let status_text = match &result.result {
             Ok(task_result) => {
-                // Print any Proxmox errors before the END marker
+                // Print errors before the END marker
                 for proxmox_result in &task_result.proxmox {
                     if let Err(e) = &proxmox_result.result {
                         let msg = format!(
                             "Proxmox {} failed (node={} vmid={}): {e}",
                             proxmox_result.action, proxmox_result.node, proxmox_result.vmid
+                        );
+                        let line = self.format_line(host_name, &msg);
+                        println!("{}", line.red());
+                    }
+                }
+                for copy_result in &task_result.uploads {
+                    if let Err(e) = &copy_result.result {
+                        let msg = format!(
+                            "upload failed: {} -> {}: {e}",
+                            copy_result.local_path, copy_result.remote_path
+                        );
+                        let line = self.format_line(host_name, &msg);
+                        println!("{}", line.red());
+                    }
+                }
+                for copy_result in &task_result.downloads {
+                    if let Err(e) = &copy_result.result {
+                        let msg = format!(
+                            "download failed: {} -> {}: {e}",
+                            copy_result.remote_path, copy_result.local_path
+                        );
+                        let line = self.format_line(host_name, &msg);
+                        println!("{}", line.red());
+                    }
+                }
+                for delete_result in &task_result.deletes {
+                    if let Err(e) = &delete_result.result {
+                        let msg = format!(
+                            "remote delete failed: {}: {e}",
+                            delete_result.remote_path
                         );
                         let line = self.format_line(host_name, &msg);
                         println!("{}", line.red());

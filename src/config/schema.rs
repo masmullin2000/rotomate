@@ -675,6 +675,103 @@ pub struct HostProxmox {
     pub snapshot: Option<String>,
 }
 
+/// A single step within a task's `steps` sequence.
+///
+/// Steps execute in declaration order and allow repeating operation types
+/// (e.g., upload -> `remote_command` -> upload -> `remote_command`).
+///
+/// YAML format (each step is a single-key mapping):
+/// ```yaml
+/// steps:
+///   - remote_command:
+///       - echo hello
+///   - upload:
+///       - "local/file /remote/path"
+/// ```
+#[derive(Debug, Clone)]
+pub enum TaskStep {
+    /// Commands to execute on remote hosts.
+    RemoteCommand(ExecCmdline),
+    /// Commands to execute on the local machine.
+    LocalCommand(ExecCmdline),
+    /// Files to upload to remote host (format: "local remote").
+    Upload(Vec<String>),
+    /// Files to download from remote host (format: "remote local").
+    Download(Vec<String>),
+    /// Files to delete on remote host.
+    DeleteRemote(Vec<String>),
+    /// Files to delete on local host.
+    DeleteLocal(Vec<String>),
+}
+
+impl<'de> serde::Deserialize<'de> for TaskStep {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let mapping = serde_yaml::Mapping::deserialize(deserializer)?;
+        if mapping.len() != 1 {
+            return Err(D::Error::custom(format!(
+                "each step must have exactly one key, got {}",
+                mapping.len()
+            )));
+        }
+
+        let (key, value) = mapping.into_iter().next().unwrap();
+        let key_str = key
+            .as_str()
+            .ok_or_else(|| D::Error::custom("step key must be a string"))?;
+
+        match key_str {
+            "remote_command" => {
+                let exec = ExecCmdline::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::RemoteCommand(exec))
+            }
+            "local_command" => {
+                let exec = ExecCmdline::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::LocalCommand(exec))
+            }
+            "upload" => {
+                let paths = Vec::<String>::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::Upload(paths))
+            }
+            "download" => {
+                let paths = Vec::<String>::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::Download(paths))
+            }
+            "delete_remote" => {
+                let paths = Vec::<String>::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::DeleteRemote(paths))
+            }
+            "delete_local" => {
+                let paths = Vec::<String>::deserialize(value).map_err(D::Error::custom)?;
+                Ok(Self::DeleteLocal(paths))
+            }
+            other => Err(D::Error::custom(format!(
+                "unknown step type '{other}', expected one of: \
+                 remote_command, local_command, upload, download, delete_remote, delete_local"
+            ))),
+        }
+    }
+}
+
+impl TaskStep {
+    /// Returns true if this step requires an SSH connection.
+    pub const fn needs_ssh(&self) -> bool {
+        matches!(
+            self,
+            Self::RemoteCommand(_) | Self::Upload(_) | Self::Download(_) | Self::DeleteRemote(_)
+        )
+    }
+
+    /// Returns true if this step runs locally (no SSH required).
+    pub const fn is_local(&self) -> bool {
+        matches!(self, Self::LocalCommand(_) | Self::DeleteLocal(_))
+    }
+}
+
 /// Task definition - a named sequence of commands and/or file operations.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
@@ -730,6 +827,13 @@ pub struct Task {
     #[serde(default)]
     pub delete_local: Vec<String>,
 
+    /// Ordered sequence of operations. When non-empty, flat fields
+    /// (`remote_command`, `local_command`, `upload`, `download`, `delete_remote`,
+    /// `delete_local`) are ignored and steps are executed in declaration order.
+    /// `proxmox_command` is NOT supported in steps — it must stay as a flat field.
+    #[serde(default)]
+    pub steps: Vec<TaskStep>,
+
     /// Verbose printing of command output (streams output in real-time).
     #[serde(default)]
     pub verbose: Option<bool>,
@@ -743,6 +847,7 @@ impl Task {
     /// Check if the task has any commands or file operations to execute.
     pub fn is_empty(&self) -> bool {
         self.proxmox_command.is_empty()
+            && self.steps.is_empty()
             && self.remote_command.is_empty()
             && self.local_command.is_empty()
             && self.upload.is_empty()
@@ -751,9 +856,50 @@ impl Task {
             && self.delete_local.is_empty()
     }
 
+    /// Returns true if this task uses the `steps:` syntax.
+    pub const fn has_steps(&self) -> bool {
+        !self.steps.is_empty()
+    }
+
     pub fn inactivity_timeout(&self) -> u64 {
         const DEFAULT: u64 = 15;
         self.inactivity_timeout.unwrap_or(DEFAULT)
+    }
+
+    /// Validate that flat operation fields are not mixed with `steps`.
+    pub fn validate(&self, name: &str) -> anyhow::Result<()> {
+        if !self.has_steps() {
+            return Ok(());
+        }
+
+        let mut conflicts = Vec::new();
+        if !self.remote_command.is_empty() {
+            conflicts.push("remote_command");
+        }
+        if !self.local_command.is_empty() {
+            conflicts.push("local_command");
+        }
+        if !self.upload.is_empty() {
+            conflicts.push("upload");
+        }
+        if !self.download.is_empty() {
+            conflicts.push("download");
+        }
+        if !self.delete_remote.is_empty() {
+            conflicts.push("delete_remote");
+        }
+        if !self.delete_local.is_empty() {
+            conflicts.push("delete_local");
+        }
+
+        if !conflicts.is_empty() {
+            anyhow::bail!(
+                "Task '{name}' uses 'steps' but also has flat fields: {}. \
+                 Use either 'steps' or flat fields, not both.",
+                conflicts.join(", ")
+            );
+        }
+        Ok(())
     }
 }
 
@@ -784,8 +930,32 @@ pub enum HostRef {
 }
 
 /// Commands to execute - can be a list of commands or a single script.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(untagged)]
+///
+/// Valid YAML formats:
+/// ```yaml
+/// # List of commands:
+/// remote_command:
+///   - echo hello
+///   - ls -la
+///
+/// # Single script:
+/// local_command: |
+///   echo hello
+///   echo world
+///
+/// # Empty/null:
+/// remote_command: ~
+/// ```
+///
+/// **Important:** Commands containing `: ` (colon-space) must be YAML-quoted:
+/// ```yaml
+/// # Wrong — YAML interprets `: ` as a key-value separator:
+///   - echo "Current dir: $(pwd)"
+///
+/// # Correct — wrap the entire command in YAML quotes:
+///   - 'echo "Current dir: $(pwd)"'
+/// ```
+#[derive(Debug, Clone, Default)]
 pub enum ExecCmdline {
     /// No commands.
     #[default]
@@ -794,6 +964,95 @@ pub enum ExecCmdline {
     List(Vec<String>),
     /// A single script (bash or other) to execute as one unit.
     Script(String),
+}
+
+impl<'de> serde::Deserialize<'de> for ExecCmdline {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+
+        match value {
+            serde_yaml::Value::Null => Ok(Self::Empty),
+            serde_yaml::Value::String(s) => Ok(Self::Script(s)),
+            serde_yaml::Value::Sequence(seq) => {
+                let mut commands = Vec::with_capacity(seq.len());
+                for item in &seq {
+                    match item {
+                        serde_yaml::Value::String(s) => commands.push(s.clone()),
+                        serde_yaml::Value::Mapping(m) => {
+                            let reconstructed = reconstruct_mapping_as_command(m);
+                            return Err(D::Error::custom(format!(
+                                "command must be quoted\n\
+                                 Suggested fix:\n  \
+                                 - '{reconstructed}'"
+                            )));
+                        }
+                        other => {
+                            let type_name = yaml_type_name(other);
+                            return Err(D::Error::custom(format!(
+                                "command expected a string, got {type_name}"
+                            )));
+                        }
+                    }
+                }
+                Ok(Self::List(commands))
+            }
+            other => {
+                let type_name = yaml_type_name(&other);
+                Err(D::Error::custom(format!(
+                    "expected a list of commands, a single script string, or null, but got {type_name}"
+                )))
+            }
+        }
+    }
+}
+
+/// Get a human-readable type name for a `serde_yaml::Value`.
+fn yaml_type_name(value: &serde_yaml::Value) -> &'static str {
+    match value {
+        serde_yaml::Value::Null => "null",
+        serde_yaml::Value::Bool(_) => "a boolean",
+        serde_yaml::Value::Number(_) => "a number",
+        serde_yaml::Value::String(_) => "a string",
+        serde_yaml::Value::Sequence(_) => "a list",
+        serde_yaml::Value::Mapping(_) => "a mapping",
+        serde_yaml::Value::Tagged(_) => "a tagged value",
+    }
+}
+
+/// Reconstruct the approximate original command from a YAML mapping.
+///
+/// When a command like `echo "Current dir: $(pwd)"` is misinterpreted by YAML,
+/// it becomes a mapping: `{"echo \"Current dir": "$(pwd)\""}`.
+/// This function joins key-value pairs back with `: ` to show what the user wrote.
+fn reconstruct_mapping_as_command(map: &serde_yaml::Mapping) -> String {
+    map.iter()
+        .map(|(k, v)| {
+            let key = yaml_value_to_display(k);
+            let val = yaml_value_to_display(v);
+            if val.is_empty() {
+                key
+            } else {
+                format!("{key}: {val}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Convert a YAML value to a display string for error messages.
+fn yaml_value_to_display(value: &serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::Null => String::new(),
+        serde_yaml::Value::String(s) => s.clone(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        _ => format!("{value:?}"),
+    }
 }
 
 impl ExecCmdline {
@@ -832,3 +1091,51 @@ impl ExecCmdline {
 /// When multiple campaigns exist and none is specified, the first one (alphabetically) is used.
 /// Can be specified as a simple list: `campaign_name: [task1, task2]`
 pub type Campaign = Vec<String>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exec_cmdline_list_of_strings() {
+        let yaml = "- uname -a\n- hostname\n- whoami\n";
+        let result: ExecCmdline = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(result, ExecCmdline::List(ref v) if v.len() == 3));
+    }
+
+    #[test]
+    fn test_exec_cmdline_script() {
+        let yaml = "|\n  echo hello\n  echo world\n";
+        let result: ExecCmdline = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(result, ExecCmdline::Script(_)));
+    }
+
+    #[test]
+    fn test_exec_cmdline_empty() {
+        let yaml = "~\n";
+        let result: ExecCmdline = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(result, ExecCmdline::Empty));
+    }
+
+    #[test]
+    fn test_exec_cmdline_colon_space_in_plain_scalar() {
+        // `: ` in a YAML plain scalar is interpreted as a mapping key-value separator.
+        // This must produce an actionable error, not the generic untagged enum message.
+        let yaml = "- echo \"Current dir: $(pwd)\"\n";
+        let result: Result<ExecCmdline, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "Should fail: plain scalar with `: ` is a YAML mapping");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("must be quoted"),
+            "Error should be actionable: {err}"
+        );
+    }
+
+    #[test]
+    fn test_exec_cmdline_quoted_colon_space() {
+        // Properly YAML-quoted string with `: ` works fine
+        let yaml = "- 'echo \"Current dir: $(pwd)\"'\n";
+        let result: ExecCmdline = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(result, ExecCmdline::List(ref v) if v.len() == 1));
+    }
+}

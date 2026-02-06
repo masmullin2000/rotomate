@@ -5,36 +5,36 @@ rot is an SSH automation tool that runs tasks across multiple remote hosts in pa
 ## Quick Start
 
 ```bash
-# Validate configuration without executing
-rot check config.yaml
+# Run tasks from a configuration file (default)
+rot config.yaml
 
-# Run tasks from a configuration file
-rot run config.yaml
+# Validate configuration without executing
+rot config.yaml --check
 
 # Run with verbose output (streams command output in real-time)
-rot run config.yaml -v
+rot config.yaml -v
 
 # Run with sudo password prompt (for become_root tasks)
-rot run config.yaml --root
+rot config.yaml --root
 
 # Run multiple config files (merged in order, later files override)
-rot run hosts.yaml tasks.yaml runs.yaml
+rot hosts.yaml tasks.yaml runs.yaml
 
 # Run a specific campaign
-rot run config.yaml -c quick_deploy
+rot config.yaml -c quick_deploy
 
 # Capture output to stdout after completion
-rot run config.yaml -o std
+rot config.yaml -o std
 
 # Capture output to a file
-rot run config.yaml -o /tmp/output.txt
+rot config.yaml -o /tmp/output.txt
 
 # List hosts, tasks, or groups
-rot list config.yaml hosts
-rot list config.yaml tasks
-rot list config.yaml groups
-rot list config.yaml campaigns
-rot list config.yaml all
+rot config.yaml --list hosts
+rot config.yaml --list tasks
+rot config.yaml --list groups
+rot config.yaml --list campaigns
+rot config.yaml --list all
 ```
 
 ## Configuration File Structure
@@ -319,6 +319,46 @@ download:
   - "C:\\logs\\app.log ./logs/app.log"
 ```
 
+### Steps
+
+By default, task operations execute in a fixed order: `proxmox_command` → `local_command` → `upload` → `remote_command` → `download` → `delete_remote` → `delete_local`, and each operation type can only appear once. Use `steps` to run operations in YAML declaration order with repeats allowed:
+
+```yaml
+tasks:
+  deploy_and_verify:
+    description: "Upload, verify, then clean up"
+    steps:
+      - remote_command:
+          - mkdir -p /tmp/deploy
+      - upload:
+          - "dist.tar.gz /tmp/deploy/dist.tar.gz"
+      - remote_command:
+          - tar -xzf /tmp/deploy/dist.tar.gz -C /opt/myapp
+          - systemctl restart myapp
+      - remote_command:
+          - curl -f http://localhost:8080/health
+      - delete_remote:
+          - /tmp/deploy/dist.tar.gz
+```
+
+Each step is a single-key mapping with one of the supported operation types:
+
+| Step type | Description |
+|-----------|-------------|
+| `remote_command` | Commands to run on remote hosts |
+| `local_command` | Commands to run on the local machine |
+| `upload` | Files to upload: `"local remote"` |
+| `download` | Files to download: `"remote local"` |
+| `delete_remote` | Files to delete on remote host |
+| `delete_local` | Files to delete locally |
+
+**Important:**
+- A task must use **either** `steps` **or** flat fields (`remote_command`, `upload`, etc.), never both. Mixing is rejected at config validation time.
+- `proxmox_command` is not supported in steps (it runs before the SSH connection is established). Use it as a flat field in a separate task.
+- When using steps, `local_command` runs per-host (within the host loop), unlike flat `local_command` which runs once before any host connections.
+- All task options (`stop_on_error`, `become_root`, `verbose`, etc.) still apply to steps tasks.
+- Template variables (`{{ vars }}`, `{{ host.* }}`, `{{ builtin.* }}`) work inside steps.
+
 ---
 
 ## Task Groups
@@ -415,9 +455,9 @@ campaigns:
 Run a specific campaign:
 
 ```bash
-rot run config.yaml --campaign quick_deploy
+rot config.yaml --campaign quick_deploy
 # Or use short form:
-rot run config.yaml -c quick_deploy
+rot config.yaml -c quick_deploy
 ```
 
 If multiple campaigns exist, the first one (by definition order) is auto-selected if no `--campaign` is specified.
@@ -442,7 +482,7 @@ task_groups:
 Use `--lenient-campaign` (or `-l`) to disable auto-inclusion and only warn about missing dependencies:
 
 ```bash
-rot run config.yaml -c deploy -l  # Warns about 'build' but doesn't include it
+rot config.yaml -c deploy -l  # Warns about 'build' but doesn't include it
 ```
 
 ---
@@ -712,11 +752,11 @@ tasks:
 Run the full deployment:
 
 ```bash
-rot run config/main.yaml -v
+rot config/main.yaml -v
 ```
 
 Run just the deployment (skip build and verification):
 
 ```bash
-rot run config/main.yaml -c quick
+rot config/main.yaml -c quick
 ```

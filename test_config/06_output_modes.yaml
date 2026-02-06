@@ -1,0 +1,56 @@
+# 06 — Output modes: verbose and capture_output
+#
+# Tests:
+#   - Task with verbose: true (streams output in real-time)
+#   - Task with capture_output: true (captures and displays after completion)
+#   - Default mode (no verbose, no capture — summary only)
+#
+# Run each to compare output behavior:
+#   rot test_config/06_output_modes.yaml                  # default (summary only)
+#   rot test_config/06_output_modes.yaml -v               # CLI verbose override
+#   rot test_config/06_output_modes.yaml -o std            # CLI capture override
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  task_verbose:
+    description: "Task-level verbose: true — streams output"
+    verbose: true
+    remote_command:
+      - echo "Verbose line 1"
+      - sleep 1
+      - echo "Verbose line 2 (after 1s delay)"
+      - echo "Verbose line 3"
+
+  task_capture:
+    description: "Task-level capture_output: true — shows after completion"
+    capture_output: true
+    remote_command:
+      - echo "Captured line 1"
+      - sleep 1
+      - echo "Captured line 2 (after 1s delay)"
+      - echo "Captured line 3"
+
+  task_default:
+    description: "Default output mode — summary only"
+    remote_command:
+      - echo "Default line 1"
+      - sleep 1
+      - echo "Default line 2 (after 1s delay)"
+      - echo "Default line 3"
+
+task_groups:
+  output_modes:
+    - name: "Output Mode Tests"
+    - hosts: localhost
+    - task: task_verbose
+    - task: task_capture
+    - task: task_default

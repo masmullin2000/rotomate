@@ -1,0 +1,41 @@
+# 01 — Local command execution basics
+#
+# Tests:
+#   - local_command as a list of commands
+#   - local_command as a multi-line script
+#   - Variable expansion (vars:) in local commands
+#   - Two tasks in a sequential task group
+#
+# Run:
+#   rot test_config/01_local_commands.yaml -v
+---
+
+vars:
+  greeting: "Hello from rotomate"
+  work_dir: /tmp/rot-test-01
+
+tasks:
+  list_commands:
+    description: "Local commands as a list with variable expansion"
+    local_command:
+      - echo "{{ greeting }}"
+      - echo "Work dir is {{ work_dir }}"
+      - mkdir -p {{ work_dir }}
+      - ls -ld {{ work_dir }}
+
+  multiline_script:
+    description: "Local command as a multi-line script"
+    local_command: |
+      echo "=== Multi-line script ==="
+      for i in 1 2 3; do
+        echo "Iteration $i"
+      done
+      echo "Cleaning up {{ work_dir }}"
+      rm -rf {{ work_dir }}
+      echo "Done"
+
+task_groups:
+  local_basics:
+    - name: "Local Command Basics"
+    - task: list_commands
+    - task: multiline_script

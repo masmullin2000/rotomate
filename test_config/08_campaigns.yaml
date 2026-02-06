@@ -1,0 +1,50 @@
+# 08 — Campaign selection and dependencies
+#
+# Tests:
+#   - Multiple task groups with dependency chain: setup → deploy → verify
+#   - Two campaigns: "full" (all three) and "deploy_only" (just deploy)
+#   - Default behavior: first campaign auto-selected ("full")
+#   - --campaign deploy_only: runs deploy + auto-includes setup dependency
+#   - --campaign deploy_only --lenient-campaign: runs only deploy, warns about missing setup
+#
+# Run:
+#   rot test_config/08_campaigns.yaml -v                                    # auto-selects "full"
+#   rot test_config/08_campaigns.yaml -v -c full                            # explicit full
+#   rot test_config/08_campaigns.yaml -v -c deploy_only                     # deploy + auto-included setup
+#   rot test_config/08_campaigns.yaml -v -c deploy_only --lenient-campaign  # deploy only, warns about setup
+---
+
+tasks:
+  setup_task:
+    description: "Setup step"
+    local_command:
+      - echo "=== SETUP running ==="
+
+  deploy_task:
+    description: "Deploy step"
+    local_command:
+      - echo "=== DEPLOY running ==="
+
+  verify_task:
+    description: "Verify step"
+    local_command:
+      - echo "=== VERIFY running ==="
+
+task_groups:
+  setup:
+    - name: "Setup Phase"
+    - task: setup_task
+
+  deploy:
+    - name: "Deploy Phase"
+    - depends: [setup]
+    - task: deploy_task
+
+  verify:
+    - name: "Verify Phase"
+    - depends: [deploy]
+    - task: verify_task
+
+campaigns:
+  full: [setup, deploy, verify]
+  deploy_only: [deploy]

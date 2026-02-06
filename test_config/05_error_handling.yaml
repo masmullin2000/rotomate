@@ -1,0 +1,46 @@
+# 05 — stop_on_error behavior
+#
+# Tests:
+#   - stop_on_error: true  → failing command skips subsequent commands
+#   - stop_on_error: false → failing command does NOT skip subsequent commands
+#
+# Expected output:
+#   strict_task: "before" prints, "after" does NOT print (stopped early)
+#   lenient_task: "before" prints, "after" DOES print (continues past failure)
+#
+# Run:
+#   rot test_config/05_error_handling.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  strict_task:
+    description: "stop_on_error: true — should stop after failure"
+    stop_on_error: true
+    remote_command:
+      - echo "STRICT before failure"
+      - /bin/false
+      - echo "STRICT after failure (should NOT appear)"
+
+  lenient_task:
+    description: "stop_on_error: false — should continue after failure"
+    stop_on_error: false
+    remote_command:
+      - echo "LENIENT before failure"
+      - /bin/false
+      - echo "LENIENT after failure (should appear)"
+
+task_groups:
+  error_handling:
+    - name: "Error Handling Tests"
+    - hosts: localhost
+    - task: strict_task
+    - task: lenient_task

@@ -5,6 +5,7 @@ use minijinja::{Environment, UndefinedBehavior};
 use std::collections::HashMap;
 
 use crate::config::HostContext;
+use crate::config::schema::{ExecCmdline, TaskStep};
 
 /// Built-in context variables available during execution-time template rendering.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -68,6 +69,75 @@ impl RenderedTaskFields {
             download,
         })
     }
+}
+
+/// Render all template expressions within a `Vec<TaskStep>` using host + builtin context.
+pub fn render_steps<H: std::hash::BuildHasher>(
+    vars: &HashMap<String, serde_yaml::Value, H>,
+    host_context: &HostContext,
+    builtin: &BuiltinContext,
+    steps: &[TaskStep],
+) -> Result<Vec<TaskStep>> {
+    let env = Environment::build();
+
+    // Build context with vars, host, and builtin
+    let mut context_map: HashMap<String, minijinja::Value> = vars
+        .iter()
+        .map(|(k, v)| (k.clone(), yaml_to_jinja_value(v)))
+        .collect();
+
+    context_map.insert(
+        "host".to_string(),
+        minijinja::Value::from_serialize(host_context),
+    );
+    context_map.insert(
+        "builtin".to_string(),
+        minijinja::Value::from_serialize(builtin),
+    );
+
+    let context = minijinja::Value::from_serialize(&context_map);
+
+    steps
+        .iter()
+        .map(|step| match step {
+            TaskStep::RemoteCommand(exec) => {
+                let cmds: Vec<String> =
+                    exec.as_commands().iter().map(ToString::to_string).collect();
+                let rendered = env.render_string_vec(&cmds, &context)?;
+                Ok(TaskStep::RemoteCommand(if rendered.is_empty() {
+                    ExecCmdline::Empty
+                } else {
+                    ExecCmdline::List(rendered)
+                }))
+            }
+            TaskStep::LocalCommand(exec) => {
+                let cmds: Vec<String> =
+                    exec.as_commands().iter().map(ToString::to_string).collect();
+                let rendered = env.render_string_vec(&cmds, &context)?;
+                Ok(TaskStep::LocalCommand(if rendered.is_empty() {
+                    ExecCmdline::Empty
+                } else {
+                    ExecCmdline::List(rendered)
+                }))
+            }
+            TaskStep::Upload(specs) => {
+                let rendered = env.render_string_vec(specs, &context)?;
+                Ok(TaskStep::Upload(rendered))
+            }
+            TaskStep::Download(specs) => {
+                let rendered = env.render_string_vec(specs, &context)?;
+                Ok(TaskStep::Download(rendered))
+            }
+            TaskStep::DeleteRemote(paths) => {
+                let rendered = env.render_string_vec(paths, &context)?;
+                Ok(TaskStep::DeleteRemote(rendered))
+            }
+            TaskStep::DeleteLocal(paths) => {
+                let rendered = env.render_string_vec(paths, &context)?;
+                Ok(TaskStep::DeleteLocal(rendered))
+            }
+        })
+        .collect()
 }
 
 /// Extension trait for minijinja Environment with rendering helpers.

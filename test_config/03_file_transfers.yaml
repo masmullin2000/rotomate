@@ -1,0 +1,80 @@
+# 03 — File transfer operations
+#
+# Tests:
+#   - upload local file to remote (localhost via SFTP)
+#   - remote_command to verify uploaded content
+#   - download file back from remote
+#   - delete_remote cleanup
+#   - delete_local cleanup
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/03_file_transfers.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+vars:
+  test_dir: /tmp/rot-test-03
+
+tasks:
+  create_local_file:
+    description: "Create a local file to upload"
+    local_command:
+      - mkdir -p {{ test_dir }}
+      - echo "rotomate upload test content" > {{ test_dir }}/upload_me.txt
+      - echo "Created local file:"
+      - cat {{ test_dir }}/upload_me.txt
+
+  upload_and_verify:
+    description: "Upload file to remote and verify it arrived"
+    steps:
+      - remote_command:
+          - mkdir -p /tmp/rot-test-03-remote
+      - upload:
+          - "{{ test_dir }}/upload_me.txt /tmp/rot-test-03-remote/uploaded.txt"
+      - remote_command:
+          - echo "=== Verify upload ==="
+          - cat /tmp/rot-test-03-remote/uploaded.txt
+
+  download_back:
+    description: "Download the file back to local"
+    steps:
+      - download:
+          - "/tmp/rot-test-03-remote/uploaded.txt {{ test_dir }}/downloaded.txt"
+      - local_command:
+          - echo "=== Verify download ==="
+          - cat {{ test_dir }}/downloaded.txt
+          - diff {{ test_dir }}/upload_me.txt {{ test_dir }}/downloaded.txt && echo "Files match!"
+
+  cleanup:
+    description: "Clean up remote and local files"
+    steps:
+      - delete_remote:
+          - /tmp/rot-test-03-remote/uploaded.txt
+      - delete_local:
+          - "{{ test_dir }}/upload_me.txt"
+          - "{{ test_dir }}/downloaded.txt"
+      - local_command:
+          - rm -rf {{ test_dir }}
+          - echo "Cleanup complete"
+
+task_groups:
+  file_transfers:
+    - name: "File Transfer Tests"
+    - task: create_local_file
+      hosts: localhost
+    - task: upload_and_verify
+      hosts: localhost
+    - task: download_back
+      hosts: localhost
+    - task: cleanup
+      hosts: localhost

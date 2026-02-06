@@ -1,8 +1,8 @@
 # Test configuration for campaign dependency auto-inclusion
 #
 # Usage:
-#   Default (auto-include deps):  rot run config/test_campaign_deps.yaml
-#   Lenient (warn, skip deps):    rot run config/test_campaign_deps.yaml --lenient-campaign
+#   Default (auto-include deps):  rot config/test_campaign_deps.yaml
+#   Lenient (warn, skip deps):    rot config/test_campaign_deps.yaml --lenient-campaign
 #
 # Expected behavior:
 #   - Default: both 'setup' and 'deploy' task_groups run (setup auto-included)

@@ -1,0 +1,82 @@
+# 11 — Steps: ordered operations within a single task
+#
+# Tests:
+#   - steps execute in YAML declaration order
+#   - remote_command, upload, download, delete_remote, delete_local all work in steps
+#   - template variables (vars, host.*, builtin.*) render inside steps
+#   - script style (| block scalar) works inside steps
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/11_steps.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+vars:
+  test_dir: /tmp/rot-test-11
+  remote_dir: /tmp/rot-test-11-remote
+
+tasks:
+  setup_local:
+    description: "Create local test file"
+    local_command:
+      - mkdir -p {{ test_dir }}
+      - echo "steps-test-content" > {{ test_dir }}/steps_file.txt
+
+  steps_workflow:
+    description: "Full workflow using steps"
+    steps:
+      - remote_command:
+          - mkdir -p {{ remote_dir }}
+          - echo "STEP1 remote_command on {{ host.name }}"
+      - upload:
+          - "{{ test_dir }}/steps_file.txt {{ remote_dir }}/uploaded.txt"
+      - remote_command:
+          - echo "STEP3 verify upload"
+          - cat {{ remote_dir }}/uploaded.txt
+      - remote_command: |
+          echo "STEP4 script style on {{ host.name }}"
+          LINES=$(wc -l < {{ remote_dir }}/uploaded.txt)
+          echo "Uploaded file has $LINES line(s)"
+      - download:
+          - "{{ remote_dir }}/uploaded.txt {{ test_dir }}/downloaded.txt"
+      - local_command:
+          - echo "STEP5 verify download"
+          - cat {{ test_dir }}/downloaded.txt
+          - diff {{ test_dir }}/steps_file.txt {{ test_dir }}/downloaded.txt && echo "Files match!"
+      - local_command: |
+          echo "STEP6 local script style"
+          COUNT=$(wc -c < {{ test_dir }}/downloaded.txt)
+          echo "Downloaded file is $COUNT bytes"
+      - delete_remote:
+          - "{{ remote_dir }}/uploaded.txt"
+      - remote_command:
+          - rmdir {{ remote_dir }}
+          - echo "STEP7 remote cleanup done"
+      - delete_local:
+          - "{{ test_dir }}/downloaded.txt"
+
+  cleanup_local:
+    description: "Remove local test directory"
+    local_command:
+      - rm -rf {{ test_dir }}
+      - echo "Local cleanup complete"
+
+task_groups:
+  steps_test:
+    - name: "Steps Workflow Test"
+    - task: setup_local
+      hosts: localhost
+    - task: steps_workflow
+      hosts: localhost
+    - task: cleanup_local
+      hosts: localhost

@@ -1,0 +1,42 @@
+# 10 — Privilege escalation with sudo (optional)
+#
+# Tests:
+#   - become_root: true on a task
+#   - Run with --root flag to provide sudo password
+#
+# Prerequisite: sudo access on localhost
+#
+# Run:
+#   rot test_config/10_sudo.yaml -v --root
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+    sudo_prompt: true
+
+tasks:
+  whoami_normal:
+    description: "Run whoami without sudo (should be mm)"
+    remote_command:
+      - 'echo "Normal user: $(whoami)"'
+      - 'echo "UID: $(id -u)"'
+
+  whoami_root:
+    description: "Run whoami with sudo (should be root)"
+    become_root: true
+    remote_command:
+      - 'echo "Elevated user: $(whoami)"'
+      - 'echo "UID: $(id -u)"'
+
+task_groups:
+  sudo_test:
+    - name: "Sudo Escalation Test"
+    - hosts: localhost
+    - task: whoami_normal
+    - task: whoami_root

@@ -1,0 +1,16 @@
+# 07 — Imported host definitions
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  server_a:
+    hostname: 127.0.0.1
+  server_b:
+    hostname: 127.0.0.1
+
+groups:
+  all_servers: [server_a, server_b]

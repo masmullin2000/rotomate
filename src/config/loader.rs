@@ -43,8 +43,13 @@ fn load_config_recursive(
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
     // Parse as raw YAML Value first
-    let mut raw_value: serde_yaml::Value = serde_yaml::from_str(&content)
-        .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+    let mut raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| {
+        let msg = e.to_string();
+        if let Some(hint) = diagnose_yaml_parse_error(&content, &msg) {
+            return anyhow::anyhow!("\n  {}: {hint}", path.display());
+        }
+        anyhow::anyhow!("Failed to parse config file: {}\n  {msg}", path.display())
+    })?;
 
     // Extract imports and vars before rendering (they shouldn't be templated)
     let imports = extract_imports(&raw_value);
@@ -90,8 +95,21 @@ fn load_config_recursive(
         .with_context(|| format!("Failed to render templates in: {}", path.display()))?;
 
     // Deserialize the rendered value into schema::Config
-    let mut config: schema::Config = serde_yaml::from_value(raw_value)
-        .with_context(|| format!("Failed to deserialize config file: {}", path.display()))?;
+    let mut config: schema::Config = serde_yaml::from_value(raw_value).map_err(|e| {
+        let msg = e.to_string();
+        let line_hint = find_error_line(&content, &msg);
+        match line_hint {
+            Some(line_num) => anyhow::anyhow!(
+                "\n  {}:{}: {msg}",
+                path.display(),
+                line_num
+            ),
+            None => anyhow::anyhow!(
+                "\n  {}: {msg}",
+                path.display()
+            ),
+        }
+    })?;
 
     // Store the merged vars in config for later use (executor needs them)
     config.vars.clone_from(&merged_vars);
@@ -130,7 +148,15 @@ fn load_config_recursive(
 /// Keys within tasks that should NOT be rendered at config load time.
 /// These fields may contain `host.*` and `builtin.*` variables that are only
 /// available at execution time.
-const TASK_DEFERRED_KEYS: &[&str] = &["remote_command", "local_command", "upload", "download"];
+const TASK_DEFERRED_KEYS: &[&str] = &[
+    "remote_command",
+    "local_command",
+    "upload",
+    "download",
+    "delete_remote",
+    "delete_local",
+    "steps",
+];
 
 /// Render YAML values selectively, skipping task command fields.
 /// Task command fields (`remote_command`, `local_command`, `upload`, `download`) are
@@ -271,4 +297,66 @@ fn expand_tilde(path: &Path) -> std::path::PathBuf {
         return std::path::PathBuf::from(expanded.as_ref());
     }
     path.to_path_buf()
+}
+
+/// Diagnose a YAML parse error and return an actionable message if possible.
+///
+/// Detects common issues like unquoted `{{ }}` template expressions that YAML
+/// interprets as flow mapping syntax (`{key: value}`).
+fn diagnose_yaml_parse_error(content: &str, error_msg: &str) -> Option<String> {
+    // Extract line number from serde_yaml error (format: "... at line N column M")
+    let line_num = extract_error_line_number(error_msg)?;
+    let line = content.lines().nth(line_num - 1)?;
+
+    // Check if the line contains template syntax that YAML misinterprets
+    if line.contains("{{") || line.contains("}}") {
+        let trimmed = line.trim();
+        // Strip leading "- " list marker for the suggested fix
+        let value = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        Some(format!(
+            "line {line_num}: YAML is interpreting `{{{{ }}}}` as flow mapping syntax\n\
+             \n  {trimmed}\n\n  \
+             Suggested fix: wrap the value in quotes:\n  \
+             - '{value}'"
+        ))
+    } else {
+        None
+    }
+}
+
+/// Extract line number from a serde_yaml error message.
+/// Matches patterns like "at line 21 column 58".
+fn extract_error_line_number(error_msg: &str) -> Option<usize> {
+    let marker = "at line ";
+    let start = error_msg.find(marker)?;
+    let rest = &error_msg[start + marker.len()..];
+    let end = rest.find(|c: char| !c.is_ascii_digit())?;
+    rest[..end].parse().ok()
+}
+
+/// Try to find the line number for a deserialization error by searching the raw YAML content.
+///
+/// The custom `ExecCmdline` deserializer includes the reconstructed command in its error
+/// message in the format: `command must be quoted:\n  - 'COMMAND'`
+/// We extract the part before the first `: ` in the command (the YAML mapping key)
+/// and search for it in the raw content.
+fn find_error_line(content: &str, error_msg: &str) -> Option<usize> {
+    // Extract text between "- '" and trailing "'"
+    let start = error_msg.find("- '")?;
+    let inner = &error_msg[start + 3..];
+    let end = inner.rfind('\'')?;
+    let command = &inner[..end];
+
+    // The key is the part before the first `: ` — this is what YAML split on
+    let search_key = command.split(": ").next()?.trim();
+    if search_key.is_empty() {
+        return None;
+    }
+
+    for (i, line) in content.lines().enumerate() {
+        if line.contains(search_key) {
+            return Some(i + 1);
+        }
+    }
+    None
 }

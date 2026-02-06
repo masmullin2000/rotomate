@@ -1,0 +1,19 @@
+# 1000 — Invalid config: unquoted command with `: ` (colon-space)
+#
+# This config is intentionally broken to test the error message.
+# Expected error should show the file, line number, and suggested fix.
+#
+# Run:
+#   rot test_config/1000_invalid_colon_space.yaml --check
+---
+
+tasks:
+  broken_task:
+    description: "Command with unquoted colon-space"
+    remote_command:
+      - echo "Current dir: $(pwd)"
+
+task_groups:
+  test:
+    - name: "Broken Test"
+    - task: broken_task

@@ -15,10 +15,10 @@ just build release gnu          # Release build (static glibc binary)
 ## Usage
 
 ```bash
-rot check config.yaml           # Validate config
-rot run config.yaml             # Run tasks
-rot run config.yaml -v          # Verbose output
-rot list config.yaml hosts      # List hosts/tasks/groups
+rot config.yaml                    # Run tasks (default)
+rot config.yaml --check            # Validate config
+rot config.yaml -v                 # Verbose output
+rot config.yaml --list hosts       # List hosts/tasks/groups
 ```
 
 ## Documentation

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::config::{ExecCmdline, ShellType, Task};
+use crate::config::{ExecCmdline, ShellType, Task, TaskStep};
 use crate::shell::get_shell;
 use crate::ssh::{CommandResult, DEFAULT_CHUNK_SIZE, Session};
 
@@ -40,7 +40,7 @@ async fn execute_uploads(
                         CopyResult {
                             local_path: local_path.to_string(),
                             remote_path: remote_path.to_string(),
-                            result: Err(format!("{e:?}")),
+                            result: Err(format!("{e}")),
                         }
                     },
                     |bytes| {
@@ -94,7 +94,7 @@ async fn execute_downloads(
                         CopyResult {
                             local_path: local_path.to_string(),
                             remote_path: remote_path.to_string(),
-                            result: Err(format!("{e:?}")),
+                            result: Err(format!("{e}")),
                         }
                     },
                     |bytes| {
@@ -198,7 +198,7 @@ async fn execute_commands<F>(
     privilege_password: Option<&str>,
     stop_on_error: bool,
     verbose: bool,
-    mut on_output: Option<F>,
+    on_output: &mut Option<F>,
 ) -> Vec<CommandResult>
 where
     F: FnMut(&str, bool),
@@ -286,7 +286,7 @@ pub async fn execute_task<F>(
     privilege_password: Option<&str>,
     proxmox_results: Vec<ProxmoxResult>,
     proxmox_stopped_early: bool,
-    on_output: Option<F>,
+    mut on_output: Option<F>,
 ) -> Result<TaskResult>
 where
     F: FnMut(&str, bool),
@@ -371,7 +371,7 @@ where
         privilege_password,
         task.stop_on_error,
         verbose,
-        on_output,
+        &mut on_output,
     )
     .await;
 
@@ -436,6 +436,147 @@ where
     // 6. Delete local files
     let local_deletes = execute_local_deletes(&task.delete_local, task.stop_on_error);
     let stopped_early = task.stop_on_error && local_deletes.iter().any(|d| !d.success());
+
+    Ok(TaskResult {
+        task_name: task.name.clone(),
+        proxmox: proxmox_results,
+        local_commands,
+        uploads,
+        commands,
+        downloads,
+        deletes,
+        local_deletes,
+        stopped_early,
+        verbose,
+        capture_output,
+        inactivity_timeout,
+        duration_secs: start_time.elapsed().as_secs_f64(),
+    })
+}
+
+/// Execute a task using the ordered `steps` sequence.
+///
+/// Each step is executed in declaration order, and results are accumulated into the
+/// corresponding typed vectors in `TaskResult`. Respects `stop_on_error`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub async fn execute_task_with_steps<F>(
+    session: &mut Session,
+    task: &Task,
+    shell_type: ShellType,
+    privilege_password: Option<&str>,
+    proxmox_results: Vec<ProxmoxResult>,
+    proxmox_stopped_early: bool,
+    mut on_output: Option<F>,
+) -> Result<TaskResult>
+where
+    F: FnMut(&str, bool),
+{
+    let start_time = Instant::now();
+    let verbose = task.verbose.unwrap_or(false);
+    let capture_output = task.capture_output.unwrap_or(false);
+    let inactivity_timeout = task.inactivity_timeout();
+
+    let mut local_commands = Vec::new();
+    let mut uploads = Vec::new();
+    let mut commands = Vec::new();
+    let mut downloads = Vec::new();
+    let mut deletes = Vec::new();
+    let mut local_deletes = Vec::new();
+    let mut stopped_early = false;
+
+    // If proxmox stopped early, return immediately
+    if proxmox_stopped_early {
+        return Ok(TaskResult {
+            task_name: task.name.clone(),
+            proxmox: proxmox_results,
+            local_commands,
+            uploads,
+            commands,
+            downloads,
+            deletes,
+            local_deletes,
+            stopped_early: true,
+            verbose,
+            capture_output,
+            inactivity_timeout,
+            duration_secs: start_time.elapsed().as_secs_f64(),
+        });
+    }
+
+    for step in &task.steps {
+        match step {
+            TaskStep::RemoteCommand(exec) => {
+                let results = execute_commands(
+                    session,
+                    exec,
+                    shell_type,
+                    task.become_root,
+                    privilege_password,
+                    task.stop_on_error,
+                    verbose,
+                    &mut on_output,
+                )
+                .await;
+                let has_failure = results.iter().any(|c| !c.success());
+                commands.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            TaskStep::LocalCommand(exec) => {
+                let local_cmd = exec.clone();
+                let stop_on_err = task.stop_on_error;
+                let results = tokio::task::spawn_blocking(move || {
+                    execute_local_commands(&local_cmd, stop_on_err, verbose)
+                })
+                .await
+                .unwrap_or_default();
+                let has_failure = results.iter().any(|c| !c.success());
+                local_commands.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            TaskStep::Upload(specs) => {
+                let results = execute_uploads(session, specs, task.stop_on_error).await;
+                let has_failure = results.iter().any(|c| !c.success());
+                uploads.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            TaskStep::Download(specs) => {
+                let results = execute_downloads(session, specs, task.stop_on_error).await;
+                let has_failure = results.iter().any(|c| !c.success());
+                downloads.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            TaskStep::DeleteRemote(paths) => {
+                let results = execute_deletes(session, paths, task.stop_on_error).await;
+                let has_failure = results.iter().any(|d| !d.success());
+                deletes.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            TaskStep::DeleteLocal(paths) => {
+                let results = execute_local_deletes(paths, task.stop_on_error);
+                let has_failure = results.iter().any(|d| !d.success());
+                local_deletes.extend(results);
+                if has_failure && task.stop_on_error {
+                    stopped_early = true;
+                    break;
+                }
+            }
+        }
+    }
 
     Ok(TaskResult {
         task_name: task.name.clone(),

@@ -1,0 +1,16 @@
+# 07 — Imported task definitions
+---
+
+vars:
+  app_name: "test-app"
+
+tasks:
+  greet:
+    description: "Greet from imported task"
+    remote_command:
+      - echo "Hello from {{ app_name }} on {{ host.name }}"
+
+  info:
+    description: "System info from imported task"
+    remote_command:
+      - 'echo "Host {{ host.name }}: $(uname -s) $(uname -m)"'

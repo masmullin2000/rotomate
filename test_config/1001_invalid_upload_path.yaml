@@ -1,0 +1,45 @@
+# 1001 — Invalid config: upload to non-existent remote directory
+#
+# This config is intentionally broken to test the upload error message.
+# The remote directory /tmp/rot-test-1001-nonexistent/ does not exist,
+# so the SFTP upload should fail with a clear error.
+#
+# Prerequisite: SSH to localhost with key-based auth
+#
+# Run:
+#   rot test_config/1001_invalid_upload_path.yaml -v
+---
+
+defaults:
+  port: 22
+  username: mm
+  private_key: ~/.ssh/id_ed25519
+
+hosts:
+  localhost:
+    hostname: 127.0.0.1
+
+tasks:
+  create_file:
+    description: "Create a local file to upload"
+    local_command:
+      - echo "test content" > /tmp/rot-test-1001-upload.txt
+
+  upload_to_missing_dir:
+    description: "Upload to a directory that does not exist"
+    upload:
+      - "/tmp/rot-test-1001-upload.txt /tmp/rot-test-1001-nonexistent/file.txt"
+
+  cleanup:
+    description: "Clean up local file"
+    delete_local:
+      - /tmp/rot-test-1001-upload.txt
+
+task_groups:
+  test:
+    - name: "Upload to Missing Directory"
+    - task: create_file
+      hosts: localhost
+    - task: upload_to_missing_dir
+      hosts: localhost
+    - task: cleanup

@@ -35,13 +35,13 @@ task_groups:
 Validate the configuration first:
 
 ```bash
-rot check hello.yaml
+rot hello.yaml --check
 ```
 
 If validation passes, run it:
 
 ```bash
-rot run hello.yaml
+rot hello.yaml
 ```
 
 You should see output from the three commands.
@@ -94,7 +94,7 @@ task_groups:
 Run it:
 
 ```bash
-rot run build.yaml
+rot build.yaml
 ```
 
 Tasks in a task_group execute sequentially, so `clean` runs first, then `build`, then `verify`.
@@ -126,7 +126,7 @@ tasks:
 To see command output in real-time, use the `-v` flag:
 
 ```bash
-rot run build.yaml -v
+rot build.yaml -v
 ```
 
 Or set `verbose: true` on individual tasks:
@@ -177,7 +177,7 @@ Replace `your_username` with your SSH username and `192.168.1.10` with your serv
 Run it:
 
 ```bash
-rot run remote.yaml -v
+rot remote.yaml -v
 ```
 
 ### Understanding Remote Execution
@@ -265,7 +265,7 @@ With `sudo_prompt: true`, rot automatically prompts for the sudo password when r
 Alternatively, use the `--root` flag for a global sudo password that applies to all hosts:
 
 ```bash
-rot run config.yaml --root
+rot config.yaml --root
 ```
 
 ### Using Host Variables
@@ -480,14 +480,14 @@ task_groups:
 ### Common Commands
 
 ```bash
-rot check config.yaml              # Validate config
-rot run config.yaml                # Run tasks
-rot run config.yaml -v             # Run with verbose output
-rot run config.yaml --root         # Prompt for global sudo password
-rot run config.yaml -c deploy      # Run specific campaign
-rot run config.yaml -o std         # Capture and display output after completion
-rot run config.yaml -o output.txt  # Capture output to file
-rot list config.yaml hosts         # List configured hosts
-rot list config.yaml tasks         # List configured tasks
-rot list config.yaml campaigns     # List configured campaigns
+rot config.yaml                    # Run tasks (default)
+rot config.yaml --check            # Validate config
+rot config.yaml -v                 # Run with verbose output
+rot config.yaml --root             # Prompt for global sudo password
+rot config.yaml -c deploy          # Run specific campaign
+rot config.yaml -o std             # Capture and display output after completion
+rot config.yaml -o output.txt     # Capture output to file
+rot config.yaml --list hosts       # List configured hosts
+rot config.yaml --list tasks       # List configured tasks
+rot config.yaml --list campaigns   # List configured campaigns
 ```
