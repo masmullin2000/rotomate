@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use colored::Colorize;
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -689,6 +690,10 @@ fn list_groups(resolved: &config::Config, verbose: bool) {
                 key_w = max_key_len,
                 name_w = max_name_len
             );
+            if !group.tasks.is_empty() {
+                let tasks: Vec<_> = group.tasks.iter().map(|t| t.task_name.as_str()).collect();
+                println!("  {}", format!("- ({})", tasks.join(", ")).dimmed());
+            }
         } else {
             println!("{:width$}  {}", group.key, group.name, width = max_key_len);
         }
@@ -700,6 +705,13 @@ fn list_campaigns(resolved: &config::Config, verbose: bool) {
         println!("No campaigns defined");
         return;
     }
+
+    // Build a map from group key to its direct depends_on list
+    let deps_map: std::collections::HashMap<&str, &[String]> = resolved
+        .task_groups
+        .iter()
+        .map(|g| (g.key.as_str(), g.depends_on.as_slice()))
+        .collect();
 
     // First campaign by definition order is the primary (auto-selected) one
     let primary_name = resolved.campaigns.keys().next().map(String::as_str);
@@ -728,8 +740,39 @@ fn list_campaigns(resolved: &config::Config, verbose: bool) {
         } else {
             println!("{name}{primary_marker}");
         }
+
         for target in campaign {
             println!("  - {target}");
+            if verbose {
+                let all_deps = collect_all_deps(target, &deps_map);
+                if !all_deps.is_empty() {
+                    println!("    {}", format!("-- ({})", all_deps.join(", ")).dimmed());
+                }
+            }
         }
     }
+}
+
+/// Collect all transitive dependencies of `target`.
+fn collect_all_deps<'a>(
+    target: &str,
+    deps_map: &std::collections::HashMap<&str, &'a [String]>,
+) -> Vec<&'a str> {
+    let mut visited = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    let mut stack = vec![target];
+
+    while let Some(current) = stack.pop() {
+        if let Some(deps) = deps_map.get(current) {
+            for dep in *deps {
+                if visited.insert(dep.as_str()) {
+                    result.push(dep.as_str());
+                    stack.push(dep.as_str());
+                }
+            }
+        }
+    }
+
+    result.sort_unstable();
+    result
 }
