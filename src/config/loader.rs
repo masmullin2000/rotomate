@@ -60,6 +60,9 @@ fn load_config_recursive(
     let mut file_scoped_vars = inherited_vars.clone();
     file_scoped_vars.extend(file_vars.clone());
 
+    // Capture which var keys this file declared (before file_vars is moved).
+    let own_var_keys: HashSet<String> = file_vars.keys().cloned().collect();
+
     // Recursively load imports, accumulating their vars and merged config.
     // Each import receives the parent's file-scoped vars (not sibling import vars).
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -99,6 +102,15 @@ fn load_config_recursive(
     // see their own variable scope (inherited from parent + file's own).
     for task in config.tasks.values_mut() {
         task.vars.clone_from(&file_scoped_vars);
+        task.own_var_keys.clone_from(&own_var_keys);
+    }
+
+    // Record file-scoped vars for each task_group defined in THIS file.
+    // At execution time, these are layered between config.vars and task.own_vars.
+    for group_key in config.task_groups.keys() {
+        config
+            .task_groups_vars
+            .insert(group_key.clone(), file_scoped_vars.clone());
     }
 
     // Expand ~ in paths

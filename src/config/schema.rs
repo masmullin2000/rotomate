@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::config::HostContext;
@@ -110,6 +110,11 @@ pub struct Config {
     #[serde(default)]
     pub campaigns: IndexMap<String, Campaign>,
 
+    /// File-scoped vars for each `task_group` (not from YAML, populated by loader).
+    /// Maps `task_group` key to the file-scoped vars of the file that defined it.
+    #[serde(skip)]
+    pub task_groups_vars: HashMap<String, HashMap<String, serde_yaml::Value>>,
+
     /// Source file tracking for hosts (not from YAML, populated by loader).
     #[serde(skip)]
     pub hosts_source: HashMap<String, PathBuf>,
@@ -140,6 +145,7 @@ impl Config {
         self.groups.extend(other.groups);
         self.tasks.extend(other.tasks);
         self.task_groups.extend(other.task_groups);
+        self.task_groups_vars.extend(other.task_groups_vars);
         self.campaigns.extend(other.campaigns);
         // Merge source tracking
         self.hosts_source.extend(other.hosts_source);
@@ -209,10 +215,10 @@ impl Config {
     fn expand_campaign_targets(
         &self,
         campaign_name: &str,
-        task_group_keys: &std::collections::HashSet<&String>,
-    ) -> anyhow::Result<std::collections::HashSet<String>> {
-        let mut result = std::collections::HashSet::new();
-        let mut visited = std::collections::HashSet::new();
+        task_group_keys: &HashSet<&String>,
+    ) -> anyhow::Result<HashSet<String>> {
+        let mut result = HashSet::new();
+        let mut visited = HashSet::new();
         self.expand_campaign_targets_recursive(
             campaign_name,
             task_group_keys,
@@ -226,9 +232,9 @@ impl Config {
     fn expand_campaign_targets_recursive(
         &self,
         campaign_name: &str,
-        task_group_keys: &std::collections::HashSet<&String>,
-        result: &mut std::collections::HashSet<String>,
-        visited: &mut std::collections::HashSet<String>,
+        task_group_keys: &HashSet<&String>,
+        result: &mut HashSet<String>,
+        visited: &mut HashSet<String>,
     ) -> anyhow::Result<()> {
         // Check for circular reference
         if !visited.insert(campaign_name.to_string()) {
@@ -261,11 +267,11 @@ impl Config {
     /// Adds any dependencies not already in `campaign_groups` to `deps_to_add`.
     fn collect_all_dependencies(
         &self,
-        campaign_groups: &std::collections::HashSet<String>,
-        all_group_keys: &std::collections::HashSet<&String>,
+        campaign_groups: &HashSet<String>,
+        all_group_keys: &HashSet<&String>,
         deps_to_add: &mut Vec<String>,
     ) {
-        let mut visited: std::collections::HashSet<String> = campaign_groups.clone();
+        let mut visited: HashSet<String> = campaign_groups.clone();
         let mut to_visit: Vec<String> = campaign_groups.iter().cloned().collect();
 
         while let Some(group_key) = to_visit.pop() {
@@ -287,22 +293,145 @@ impl Config {
         }
     }
 
+    /// Resolve task items within a group, validating task and host references.
+    fn resolve_task_items(
+        &self,
+        group_key: &str,
+        items: &[TaskGroupEntry],
+        group_hosts: Option<&HostRef>,
+    ) -> anyhow::Result<Vec<crate::config::TaskGroupItem>> {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                TaskGroupEntry::TaskGroupItem(task_item) => Some(task_item),
+                TaskGroupEntry::Name { .. }
+                | TaskGroupEntry::Depends { .. }
+                | TaskGroupEntry::Hosts(_) => None,
+            })
+            .map(|TaskGroupItem { task, hosts, .. }| {
+                if !self.tasks.contains_key(task) {
+                    anyhow::bail!(
+                        "Task '{task}' referenced in task group '{group_key}' does not exist"
+                    );
+                }
+
+                // Use task-level hosts if specified, otherwise fall back to group-level hosts
+                let effective_hosts = hosts.as_ref().or(group_hosts);
+
+                // hosts is optional - if None, this is a local-only task
+                let host_names: Vec<_> = if let Some(host_ref) = effective_hosts {
+                    expand_host_ref(host_ref, self)
+                        .map(|name| {
+                            if !self.hosts.contains_key(&name) {
+                                anyhow::bail!(
+                                    "Host '{name}' referenced in task group for task '{task}' does not exist"
+                                );
+                            }
+                            Ok(name)
+                        })
+                        .collect::<anyhow::Result<_>>()?
+                } else {
+                    Vec::new()
+                };
+
+                Ok(crate::config::TaskGroupItem {
+                    task_name: task.clone(),
+                    host_names,
+                })
+            })
+            .collect()
+    }
+
+    /// Resolve a single task group entry into a resolved `TaskGroup`.
+    fn resolve_single_task_group(
+        &self,
+        group_key: &str,
+        items: &[TaskGroupEntry],
+        group_keys: &HashSet<&String>,
+        campaign_groups: Option<&HashSet<String>>,
+        lenient_campaign: bool,
+    ) -> anyhow::Result<(String, crate::config::TaskGroup)> {
+        let display_name = items
+            .iter()
+            .find_map(|item| match item {
+                TaskGroupEntry::Name { name } => Some(name.clone()),
+                TaskGroupEntry::Depends { .. }
+                | TaskGroupEntry::Hosts(_)
+                | TaskGroupEntry::TaskGroupItem(_) => None,
+            })
+            .unwrap_or_else(|| group_key.to_owned());
+
+        // Extract group-level default hosts (if specified)
+        let group_hosts = items.iter().find_map(|item| match item {
+            TaskGroupEntry::Hosts(h) => Some(&h.hosts),
+            TaskGroupEntry::Name { .. }
+            | TaskGroupEntry::Depends { .. }
+            | TaskGroupEntry::TaskGroupItem(_) => None,
+        });
+
+        let original_depends_on: Vec<_> = items
+            .iter()
+            .filter_map(|item| match item {
+                TaskGroupEntry::Depends { depends } => Some(depends.clone()),
+                TaskGroupEntry::Name { .. }
+                | TaskGroupEntry::Hosts(_)
+                | TaskGroupEntry::TaskGroupItem(_) => None,
+            })
+            .flatten()
+            .collect();
+
+        // Validate that all dependencies exist in config
+        if let Some(dep) = original_depends_on
+            .iter()
+            .find(|dep| !group_keys.contains(dep))
+        {
+            anyhow::bail!(
+                "Task group '{group_key}' depends on '{dep}' which does not exist"
+            );
+        }
+
+        let depends_on = filter_dependencies_for_campaign(
+            group_key,
+            original_depends_on,
+            campaign_groups,
+            lenient_campaign,
+        );
+
+        let resolved_tasks = self.resolve_task_items(group_key, items, group_hosts)?;
+
+        let group_vars = self
+            .task_groups_vars
+            .get(group_key)
+            .cloned()
+            .unwrap_or_default();
+
+        Ok((
+            group_key.to_owned(),
+            crate::config::TaskGroup {
+                key: group_key.to_owned(),
+                name: display_name,
+                tasks: resolved_tasks,
+                depends_on,
+                vars: group_vars,
+            },
+        ))
+    }
+
     /// Resolve all task groups, expanding group references.
     /// If a campaign is specified, filters to only `task_groups` in that campaign.
     /// When `lenient_campaign` is false (default), dependencies are auto-included in the campaign.
     /// When `lenient_campaign` is true, dependencies not in the campaign are filtered out with warnings.
     /// Returns an error if dependencies reference non-existent groups or if there are cycles.
-    #[allow(clippy::too_many_lines)]
     pub fn resolve_task_groups(
         &self,
         campaign: Option<&str>,
         lenient_campaign: bool,
     ) -> anyhow::Result<Vec<crate::config::TaskGroup>> {
         // First pass: collect all group keys
-        let group_keys: std::collections::HashSet<_> = self.task_groups.keys().collect();
+        let group_keys: HashSet<_> = self.task_groups.keys().collect();
 
         // Determine which task_groups to include (expanding campaign references)
-        let mut campaign_groups: Option<std::collections::HashSet<String>> = campaign
+        let mut campaign_groups: Option<HashSet<String>> = campaign
             .map(|name| self.expand_campaign_targets(name, &group_keys))
             .transpose()?;
 
@@ -318,123 +447,19 @@ impl Config {
         let resolved_groups = self
             .task_groups
             .iter()
-            // Filter to only task_groups in the campaign (if specified)
             .filter(|(group_key, _)| {
                 campaign_groups
                     .as_ref()
                     .is_none_or(|cg| cg.contains(group_key.as_str()))
             })
             .map(|(group_key, items)| {
-                let display_name = items
-                    .iter()
-                    .find_map(|item| match item {
-                        TaskGroupEntry::Name { name } => Some(name.clone()),
-                        TaskGroupEntry::Depends { .. }
-                        | TaskGroupEntry::Hosts(_)
-                        | TaskGroupEntry::TaskGroupItem(_) => None,
-                    })
-                    .unwrap_or_else(|| group_key.clone());
-
-                // Extract group-level default hosts (if specified)
-                let group_hosts = items.iter().find_map(|item| match item {
-                    TaskGroupEntry::Hosts(h) => Some(&h.hosts),
-                    TaskGroupEntry::Name { .. }
-                    | TaskGroupEntry::Depends { .. }
-                    | TaskGroupEntry::TaskGroupItem(_) => None,
-                });
-
-                let original_depends_on: Vec<_> = items
-                    .iter()
-                    .filter_map(|item| match item {
-                        TaskGroupEntry::Depends { depends } => Some(depends.clone()),
-                        TaskGroupEntry::Name { .. }
-                        | TaskGroupEntry::Hosts(_)
-                        | TaskGroupEntry::TaskGroupItem(_) => None,
-                    })
-                    .flatten()
-                    .collect();
-
-                // Validate that all dependencies exist in config
-                if let Some(dep) = original_depends_on
-                    .iter()
-                    .find(|dep| !group_keys.contains(dep))
-                {
-                    anyhow::bail!(
-                        "Task group '{group_key}' depends on '{dep}' which does not exist"
-                    );
-                }
-
-                // Filter dependencies to only those in the campaign (if specified)
-                // In lenient mode, warn about missing dependencies; otherwise they were auto-included
-                let depends_on: Vec<_> = if let Some(ref cg) = campaign_groups {
-                    original_depends_on
-                        .into_iter()
-                        .filter(|dep| {
-                            let in_campaign = cg.contains(dep.as_str());
-                            if !in_campaign && lenient_campaign {
-                                eprintln!(
-                                    "Warning: task_group '{group_key}' has dependency '{dep}' \
-                                     which is not in the campaign - skipping dependency"
-                                );
-                            }
-                            in_campaign
-                        })
-                        .collect()
-                } else {
-                    original_depends_on
-                };
-
-                // Extract and resolve the task items (all TaskGroupItem variants)
-                let resolved_tasks: Vec<_> = items
-                    .iter()
-                    .filter_map(|item| match item {
-                        TaskGroupEntry::TaskGroupItem(task_item) => Some(task_item),
-                        TaskGroupEntry::Name { .. }
-                        | TaskGroupEntry::Depends { .. }
-                        | TaskGroupEntry::Hosts(_) => None,
-                    })
-                    .map(|TaskGroupItem { task, hosts, .. }| {
-                        if !self.tasks.contains_key(task) {
-                            anyhow::bail!(
-                                "Task '{task}' referenced in task group '{group_key}' does not exist"
-                            );
-                        }
-
-                        // Use task-level hosts if specified, otherwise fall back to group-level hosts
-                        let effective_hosts = hosts.as_ref().or(group_hosts);
-
-                        // hosts is optional - if None, this is a local-only task
-                        let host_names: Vec<_> = if let Some(host_ref) = effective_hosts {
-                            expand_host_ref(host_ref, self)
-                                .map(|name| {
-                                    if !self.hosts.contains_key(&name) {
-                                        anyhow::bail!(
-                                            "Host '{name}' referenced in task group for task '{task}' does not exist"
-                                        );
-                                    }
-                                    Ok(name)
-                                })
-                                .collect::<anyhow::Result<_>>()?
-                        } else {
-                            Vec::new()
-                        };
-
-                        Ok(crate::config::TaskGroupItem {
-                            task_name: task.clone(),
-                            host_names,
-                        })
-                    })
-                    .collect::<anyhow::Result<_>>()?;
-
-                Ok((
-                    group_key.clone(),
-                    crate::config::TaskGroup {
-                        key: group_key.clone(),
-                        name: display_name,
-                        tasks: resolved_tasks,
-                        depends_on,
-                    },
-                ))
+                self.resolve_single_task_group(
+                    group_key,
+                    items,
+                    &group_keys,
+                    campaign_groups.as_ref(),
+                    lenient_campaign,
+                )
             });
 
         // Detect circular dependencies using DFS
@@ -448,9 +473,9 @@ impl Config {
 /// DFS helper for cycle detection.
 fn cycle_dfs<'a>(
     node: &'a str,
-    deps_map: &'a std::collections::HashMap<String, Vec<String>>,
-    visited: &mut std::collections::HashSet<&'a str>,
-    in_stack: &mut std::collections::HashSet<&'a str>,
+    deps_map: &'a HashMap<String, Vec<String>>,
+    visited: &mut HashSet<&'a str>,
+    in_stack: &mut HashSet<&'a str>,
     path: &mut Vec<&'a str>,
 ) -> Option<Vec<String>> {
     if in_stack.contains(node) {
@@ -490,8 +515,6 @@ fn cycle_dfs<'a>(
 fn detect_dependency_cycle(
     groups: impl IntoIterator<Item = anyhow::Result<(String, crate::config::TaskGroup)>>,
 ) -> anyhow::Result<Vec<(String, crate::config::TaskGroup)>> {
-    use std::collections::{HashMap, HashSet};
-
     // Collect groups and build adjacency map in a single pass
     let (collected, deps_map) = groups.into_iter().try_fold(
         (Vec::new(), HashMap::new()),
@@ -526,6 +549,33 @@ fn detect_dependency_cycle(
     Ok(collected)
 }
 
+/// Filter dependencies to only those in the campaign.
+/// In lenient mode, warns about missing dependencies; otherwise they were auto-included.
+fn filter_dependencies_for_campaign(
+    group_key: &str,
+    depends_on: Vec<String>,
+    campaign_groups: Option<&HashSet<String>>,
+    lenient_campaign: bool,
+) -> Vec<String> {
+    if let Some(cg) = campaign_groups {
+        depends_on
+            .into_iter()
+            .filter(|dep| {
+                let in_campaign = cg.contains(dep.as_str());
+                if !in_campaign && lenient_campaign {
+                    eprintln!(
+                        "Warning: task_group '{group_key}' has dependency '{dep}' \
+                         which is not in the campaign - skipping dependency"
+                    );
+                }
+                in_campaign
+            })
+            .collect()
+    } else {
+        depends_on
+    }
+}
+
 /// Expand a host reference to a list of host names.
 fn expand_host_ref(host_ref: &HostRef, config: &Config) -> Box<dyn Iterator<Item = String>> {
     match host_ref {
@@ -538,7 +588,7 @@ fn expand_host_ref(host_ref: &HostRef, config: &Config) -> Box<dyn Iterator<Item
                 .into_iter(),
         ),
         HostRef::List(names) => {
-            let expanded: std::collections::HashSet<_> = names
+            let expanded: HashSet<_> = names
                 .iter()
                 .flat_map(|name| {
                     config
@@ -788,6 +838,11 @@ pub struct Task {
     /// global config vars so each file's tasks see their own variable scope.
     #[serde(skip)]
     pub vars: HashMap<String, serde_yaml::Value>,
+
+    /// Keys of variables declared directly in the task's own file (not inherited).
+    /// Used at execution time to layer only the task's own vars on top of group vars.
+    #[serde(skip)]
+    pub own_var_keys: HashSet<String>,
 
     /// Human-readable description of the task.
     #[serde(default)]

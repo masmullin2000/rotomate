@@ -1,0 +1,15 @@
+# 12 — Fifth file imported by both second and third
+# Has no vars — at execution time, gets group-scoped vars from the invoking group:
+#   second_group → blue, third_group → green
+---
+
+tasks:
+  echo_fifth:
+    description: "Echo color from fifth (shared import)"
+    local_command:
+      - 'echo "fifth={{ color }}"'
+
+# task_groups:
+#   fifth_group:
+#     - name: "Fifth Color"
+#     - task: echo_fifth

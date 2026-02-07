@@ -114,6 +114,8 @@ pub struct TaskGroup {
     pub tasks: Vec<TaskGroupItem>,
     /// Keys of task groups that must complete before this group starts.
     pub depends_on: Vec<String>,
+    /// File-scoped vars from the file that defined this task group.
+    pub vars: HashMap<String, serde_yaml::Value>,
 }
 
 /// A resolved task group item with host references expanded to actual host names.

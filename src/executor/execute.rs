@@ -159,6 +159,7 @@ impl Executor {
         F: Fn(&str, &HostResult) + Send + Sync,
     {
         let task_group_name = &task_group.name;
+        let task_group_vars = &task_group.vars;
         let tasks = stream::iter(&task_group.tasks)
             .then(|task_item| {
                 Self::execute_task(
@@ -167,6 +168,7 @@ impl Executor {
                     proxmox_client,
                     task_item,
                     task_group_name,
+                    task_group_vars,
                     &on_host_start,
                     &on_host_complete,
                     global_verbose,
@@ -227,7 +229,7 @@ impl Executor {
                 task_group: String::new(),
                 timestamp: self.timestamp.clone(),
             };
-            let vars = effective_vars(&self.config.vars, &task.vars);
+            let vars = effective_vars(&self.config.vars, &HashMap::new(), task);
             let (local_cmd, template_error) =
                 render_local_commands(&task.local_command, &vars, &builtin);
 
@@ -284,13 +286,13 @@ impl Executor {
             });
         }
 
-        // Find the task reference in any task group, preserving the group name
-        let (task_group_name, task_item) = self
+        // Find the task reference in any task group, preserving the group name and vars
+        let (task_group_name, task_group_vars, task_item) = self
             .config
             .task_groups
             .iter()
-            .flat_map(|g| g.tasks.iter().map(move |t| (g.name.as_str(), t)))
-            .find(|(_, t)| t.task_name == task_name)?;
+            .flat_map(|g| g.tasks.iter().map(move |t| (g.name.as_str(), &g.vars, t)))
+            .find(|(_, _, t)| t.task_name == task_name)?;
 
         Some(
             Self::execute_task(
@@ -299,6 +301,7 @@ impl Executor {
                 self.proxmox_client.as_ref(),
                 task_item,
                 task_group_name,
+                task_group_vars,
                 on_host_start,
                 on_host_complete,
                 self.verbose,
@@ -318,6 +321,7 @@ impl Executor {
         proxmox_client: Option<&ProxmoxClient>,
         task_item: &TaskGroupItem,
         task_group_name: &str,
+        group_vars: &HashMap<String, serde_yaml::Value>,
         on_host_start: S,
         on_host_complete: F,
         global_verbose: bool,
@@ -368,7 +372,7 @@ impl Executor {
                 task_group: task_group_name.to_string(),
                 timestamp: timestamp.to_string(),
             };
-            let vars = effective_vars(&config.vars, &task.vars);
+            let vars = effective_vars(&config.vars, group_vars, task);
             let (local_cmd, template_error) =
                 render_local_commands(&task.local_command, &vars, &builtin);
 
@@ -486,7 +490,7 @@ impl Executor {
                 };
 
                 // Capture template rendering error to report later
-                let vars = effective_vars(&config.vars, &task.vars);
+                let vars = effective_vars(&config.vars, group_vars, &task);
                 let template_error = if task.has_steps() {
                     // Render steps with host + builtin context
                     match render_steps(&vars, host.context(), &builtin, &task.steps) {
@@ -575,18 +579,23 @@ impl Executor {
     }
 }
 
-/// Compute effective vars for a task: config-level vars as base, task-level vars as overrides.
-/// This ensures each file's tasks see their own variable scope while still having access
-/// to globally accumulated vars as fallback.
+/// Compute effective vars for a task: config vars → group vars → task's own vars.
+/// Group vars come from the file that defined the invoking `task_group`.
+/// Task's own vars are only the keys explicitly declared in the task's file
+/// (not inherited), so the group's scope takes precedence for inherited keys.
 fn effective_vars(
     config_vars: &HashMap<String, serde_yaml::Value>,
-    task_vars: &HashMap<String, serde_yaml::Value>,
+    group_vars: &HashMap<String, serde_yaml::Value>,
+    task: &crate::config::schema::Task,
 ) -> HashMap<String, serde_yaml::Value> {
-    if task_vars.is_empty() {
-        return config_vars.clone();
-    }
     let mut vars = config_vars.clone();
-    vars.extend(task_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    vars.extend(group_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    // Layer on only the task's own declared vars (not inherited from parent)
+    for key in &task.own_var_keys {
+        if let Some(val) = task.vars.get(key) {
+            vars.insert(key.clone(), val.clone());
+        }
+    }
     vars
 }
 

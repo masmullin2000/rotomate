@@ -4,9 +4,11 @@
 #   - Each file's vars are scoped to its own tasks
 #   - Imported file vars do NOT leak back to the importer
 #   - A file with no vars inherits from the importer, not from siblings
+#   - A shared import (fifth) gets group-scoped vars at execution time:
+#     fifth=blue in second_group, fifth=green in third_group
 #
 # Expected output:
-#   main=red, second=blue, third=green, fourth=red
+#   main=red, second=blue, third=green, fourth=red, fifth=blue, fifth=green
 #
 # Run:
 #   rot test_config/12_var_override/main.yaml -v

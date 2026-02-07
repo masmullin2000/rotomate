@@ -350,10 +350,12 @@ test_12() {
     local out
     out=$(run_rot "$SCRIPT_DIR/12_var_override/main.yaml" -v)
 
-    assert_contains "main=red"   "$out" "main=red"
+    assert_contains "main=red"     "$out" "main=red"
     assert_contains "second=blue"  "$out" "second=blue"
     assert_contains "third=green"  "$out" "third=green"
     assert_contains "fourth=red"   "$out" "fourth=red"
+    assert_contains "fifth=blue"   "$out" "fifth=blue"
+    assert_contains "fifth=green"  "$out" "fifth=green"
 
     end_test
 }

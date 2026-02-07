@@ -1,6 +1,9 @@
 # 12 — Third imported file overrides color
 ---
 
+imports:
+  - fifth.yaml
+
 vars:
   color: "green"
 
@@ -14,3 +17,4 @@ task_groups:
   third_group:
     - name: "Third Color"
     - task: echo_third
+    - task: echo_fifth

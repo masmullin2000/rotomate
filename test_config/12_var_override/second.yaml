@@ -1,6 +1,9 @@
 # 12 — Second imported file overrides color
 ---
 
+imports:
+  - fifth.yaml
+
 vars:
   color: "blue"
 
@@ -14,3 +17,4 @@ task_groups:
   second_group:
     - name: "Second Color"
     - task: echo_second
+    - task: echo_fifth
