@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -469,127 +470,33 @@ impl Executor {
 
         // Execute on all hosts in parallel using FuturesUnordered
         // to yield results as they complete
-        let mut futures: FuturesUnordered<_> = config
+        let futures: FuturesUnordered<_> = config
             .hosts(task_item)
             .map(|host| {
-                // Notify host start before launching async execution
                 on_host_start(&host.ctx.name, &task_item.task_name, timeout);
-
-                let mut task = task.clone();
-                // Use host-specific sudo password if set, otherwise fall back to global
-                task.sudo_password = host
-                    .sudo_password
-                    .clone()
-                    .or_else(|| sudo_password.cloned());
-                task.name.clone_from(&task_item.task_name);
-                if task.verbose.is_none() {
-                    task.verbose = Some(global_verbose);
-                }
-                if task.capture_output.is_none() {
-                    task.capture_output = Some(global_capture_output);
-                }
-
-                let remote_commands: Vec<_> = task
-                    .remote_command
-                    .as_commands()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
-                let local_commands: Vec<_> = task
-                    .local_command
-                    .as_commands()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
-
-                let builtin = BuiltinContext {
-                    host: host.ctx.name.clone(),
-                    task_group: task_group_name.to_string(),
-                    timestamp: timestamp.to_string(),
-                };
-
-                // Capture template rendering error to report later
-                let vars = effective_vars(&config.vars, group_vars, &task);
-                let template_error = if task.has_steps() {
-                    // Render steps with host + builtin context
-                    match render_steps(&vars, host.context(), &builtin, &task.steps) {
-                        Ok(rendered_steps) => {
-                            task.steps = rendered_steps;
-                            None
-                        }
-                        Err(e) => Some(e.to_string()),
-                    }
-                } else {
-                    match RenderedTaskFields::try_new(
-                        &vars,
-                        host.context(),
-                        &builtin,
-                        &remote_commands,
-                        &local_commands,
-                        &task.upload,
-                        &task.download,
-                    ) {
-                        Ok(rendered) => {
-                            // Apply rendered fields to task
-                            task.remote_command = if rendered.remote_command.is_empty() {
-                                ExecCmdline::Empty
-                            } else {
-                                ExecCmdline::List(rendered.remote_command)
-                            };
-                            task.upload = rendered.upload;
-                            task.download = rendered.download;
-                            None
-                        }
-                        Err(e) => Some(e.to_string()),
-                    }
-                };
-
-                // Clear local_command - already executed once before parallel host execution
-                // (not needed for steps tasks - local_command runs per-host via steps)
-                if !task.has_steps() {
-                    task.local_command = ExecCmdline::Empty;
-                }
-
-                let host = host.clone();
-                let proxmox_client = proxmox_client.cloned();
-                // Create formatter for streaming output
-                let host_names: Vec<String> = config.hosts.keys().cloned().collect();
-                let formatter = Arc::new(OutputFormatter::new(&host_names));
-                let host_name_for_callback = host.ctx.name.clone();
-
-                async move {
-                    // Return error if template rendering failed
-                    if let Some(err) = template_error {
-                        return HostResult {
-                            host_name: host.ctx.name.clone(),
-                            result: Err(format!("Template rendering failed: {err}")),
-                        };
-                    }
-
-                    debug!(
-                        "Running task '{task}' on host '{host}'",
-                        task = task.name,
-                        host = host.ctx.name
-                    );
-                    // Create streaming callback if verbose mode is enabled
-                    let callback: StreamingCallback = if task.verbose.unwrap_or(false) {
-                        let host_name = host_name_for_callback.clone();
-                        Some(Box::new(move |line: &str, is_stderr: bool| {
-                            formatter.print_streaming_line(&host_name, line, is_stderr);
-                        }))
-                    } else {
-                        None
-                    };
-                    host.execute(&task, proxmox_client.as_ref(), callback).await
-                }
+                prepare_host_task(
+                    host,
+                    task,
+                    &task_item.task_name,
+                    sudo_password,
+                    task_group_name,
+                    group_vars,
+                    config,
+                    global_verbose,
+                    global_capture_output,
+                    timestamp,
+                    proxmox_client,
+                )
             })
             .collect();
 
         // Collect results as they complete, calling the callback for each
-        while let Some(result) = futures.next().await {
-            on_host_complete(&task_item.task_name, &result);
-            host_results.push(result);
-        }
+        host_results.extend(
+            futures
+                .inspect(|result| on_host_complete(&task_item.task_name, result))
+                .collect::<Vec<_>>()
+                .await,
+        );
 
         TaskExecution {
             task_name: task_item.task_name.clone(),
@@ -616,6 +523,124 @@ fn effective_vars(
         }
     }
     vars
+}
+
+/// Prepare a task for a specific host by rendering templates and applying overrides,
+/// then return a future that executes the task on the host.
+#[allow(clippy::too_many_arguments)]
+fn prepare_host_task(
+    host: &super::Host,
+    task: &crate::config::schema::Task,
+    task_name: &str,
+    sudo_password: Option<&String>,
+    task_group_name: &str,
+    group_vars: &HashMap<String, serde_yaml::Value>,
+    config: &Config,
+    global_verbose: bool,
+    global_capture_output: bool,
+    timestamp: &str,
+    proxmox_client: Option<&ProxmoxClient>,
+) -> impl Future<Output = HostResult> + Send {
+    let mut task = task.clone();
+    task.sudo_password = host
+        .sudo_password
+        .clone()
+        .or_else(|| sudo_password.cloned());
+    task.name = task_name.to_string();
+    if task.verbose.is_none() {
+        task.verbose = Some(global_verbose);
+    }
+    if task.capture_output.is_none() {
+        task.capture_output = Some(global_capture_output);
+    }
+
+    let remote_commands: Vec<_> = task
+        .remote_command
+        .as_commands()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let local_commands: Vec<_> = task
+        .local_command
+        .as_commands()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+
+    let builtin = BuiltinContext {
+        host: host.ctx.name.clone(),
+        task_group: task_group_name.to_string(),
+        timestamp: timestamp.to_string(),
+    };
+
+    let vars = effective_vars(&config.vars, group_vars, &task);
+    let template_error = if task.has_steps() {
+        match render_steps(&vars, host.context(), &builtin, &task.steps) {
+            Ok(rendered_steps) => {
+                task.steps = rendered_steps;
+                None
+            }
+            Err(e) => Some(e.to_string()),
+        }
+    } else {
+        match RenderedTaskFields::try_new(
+            &vars,
+            host.context(),
+            &builtin,
+            &remote_commands,
+            &local_commands,
+            &task.upload,
+            &task.download,
+        ) {
+            Ok(rendered) => {
+                task.remote_command = if rendered.remote_command.is_empty() {
+                    ExecCmdline::Empty
+                } else {
+                    ExecCmdline::List(rendered.remote_command)
+                };
+                task.upload = rendered.upload;
+                task.download = rendered.download;
+                None
+            }
+            Err(e) => Some(e.to_string()),
+        }
+    };
+
+    // Clear local_command — already executed once before parallel host execution
+    // (not needed for steps tasks — local_command runs per-host via steps)
+    if !task.has_steps() {
+        task.local_command = ExecCmdline::Empty;
+    }
+
+    let host = host.clone();
+    let proxmox_client = proxmox_client.cloned();
+    let host_names: Vec<String> = config.hosts.keys().cloned().collect();
+    let formatter = Arc::new(OutputFormatter::new(&host_names));
+    let host_name_for_callback = host.ctx.name.clone();
+
+    async move {
+        if let Some(err) = template_error {
+            return HostResult {
+                host_name: host.ctx.name.clone(),
+                result: Err(format!("Template rendering failed: {err}"),),
+            };
+        }
+
+        debug!(
+            "Running task '{task}' on host '{host}'",
+            task = task.name,
+            host = host.ctx.name
+        );
+        let callback: StreamingCallback = if task.verbose.unwrap_or(false) {
+            let host_name = host_name_for_callback.clone();
+            Some(Box::new(move |line: &str, is_stderr: bool| {
+                formatter.print_streaming_line(&host_name, line, is_stderr);
+            }))
+        } else {
+            None
+        };
+        host.execute(&task, proxmox_client.as_ref(), callback).await
+    }
 }
 
 /// Render local commands with vars and builtin context.
