@@ -65,6 +65,33 @@ impl OutputFormatter {
         }
     }
 
+    /// Print a task group start marker.
+    pub fn print_group_start(group_name: &str) {
+        let marker = format!("=== [{group_name}] START ===");
+        println!("{}", marker.bold());
+    }
+
+    /// Print a task group end marker with result summary.
+    pub fn print_group_end(result: &TaskGroupResult) {
+        let status = if result.success() {
+            "SUCCESS"
+        } else {
+            "FAILED"
+        };
+        let duration = Self::format_duration(result.duration_secs);
+        let marker = format!(
+            "=== [{name}] END: {status} ({success} succeeded, {failed} failed) in {duration} ===",
+            name = result.group_name,
+            success = result.success_task_count(),
+            failed = result.failed_task_count(),
+        );
+        if result.success() {
+            println!("{}", marker.bold());
+        } else {
+            println!("{}", marker.bold().red());
+        }
+    }
+
     /// Print a task start marker for a host.
     pub fn print_task_start(&self, host_name: &str, task_name: &str, timeout: u64) {
         let color = self.colors.get(host_name).unwrap_or(&"white");
@@ -289,6 +316,7 @@ impl OutputFormatter {
 
     /// Print detailed output for all tasks in a task group, with start/end markers.
     pub fn print_detailed(&self, result: &TaskGroupResult) {
+        Self::print_group_start(&result.group_name);
         for task_execution in &result.tasks {
             for host_result in &task_execution.hosts {
                 let timeout = host_result
@@ -308,6 +336,7 @@ impl OutputFormatter {
                 );
             }
         }
+        Self::print_group_end(result);
     }
 
     /// Print detailed output for a single host.

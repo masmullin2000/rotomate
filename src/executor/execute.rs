@@ -55,13 +55,24 @@ impl Executor {
     /// Task groups with dependencies wait for all dependencies to complete first.
     /// Tasks within each task group execute sequentially.
     /// Calls `on_host_start` when a host begins a task, and `on_host_complete` when finished.
-    pub async fn run_all<S, F>(&self, on_host_start: S, on_host_complete: F) -> Vec<TaskGroupResult>
+    /// Calls `on_group_start`/`on_group_complete` at the boundaries of each task group.
+    pub async fn run_all<S, F, GS, GF>(
+        &self,
+        on_host_start: S,
+        on_host_complete: F,
+        on_group_start: GS,
+        on_group_complete: GF,
+    ) -> Vec<TaskGroupResult>
     where
         S: Fn(&str, &str, u64) + Send + Sync,
         F: Fn(&str, &HostResult) + Send + Sync,
+        GS: Fn(&str) + Send + Sync,
+        GF: Fn(&TaskGroupResult) + Send + Sync,
     {
         let on_host_start = Arc::new(on_host_start);
         let on_host_complete = Arc::new(on_host_complete);
+        let on_group_start = Arc::new(on_group_start);
+        let on_group_complete = Arc::new(on_group_complete);
         let groups = &self.config.task_groups;
 
         // Map group key -> index for dependency lookup
@@ -91,6 +102,8 @@ impl Executor {
                 let proxmox_client = self.proxmox_client.clone();
                 let on_host_start = on_host_start.clone();
                 let on_host_complete = on_host_complete.clone();
+                let on_group_start = on_group_start.clone();
+                let on_group_complete = on_group_complete.clone();
                 let global_verbose = self.verbose;
                 let senders = senders.clone();
                 let receivers = receivers.clone();
@@ -116,6 +129,8 @@ impl Executor {
                         }
                     }
 
+                    on_group_start(&task_group.name);
+
                     // Execute this group
                     let result = Self::execute_task_group(
                         &config,
@@ -129,6 +144,8 @@ impl Executor {
                         &timestamp,
                     )
                     .await;
+
+                    on_group_complete(&result);
 
                     // Signal completion to all waiters
                     let _ = senders[idx].send(true);
@@ -158,6 +175,7 @@ impl Executor {
         S: Fn(&str, &str, u64) + Send + Sync,
         F: Fn(&str, &HostResult) + Send + Sync,
     {
+        let start_time = Instant::now();
         let task_group_name = &task_group.name;
         let task_group_vars = &task_group.vars;
         let tasks = stream::iter(&task_group.tasks)
@@ -182,6 +200,7 @@ impl Executor {
         TaskGroupResult {
             group_name: task_group.name.clone(),
             tasks,
+            duration_secs: start_time.elapsed().as_secs_f64(),
         }
     }
 

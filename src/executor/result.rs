@@ -291,6 +291,8 @@ pub struct TaskGroupResult {
     pub group_name: String,
     /// Results for each task in the group.
     pub tasks: Vec<TaskExecution>,
+    /// Total execution time for this task group in seconds.
+    pub duration_secs: f64,
 }
 
 impl TaskGroupResult {

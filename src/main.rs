@@ -337,6 +337,16 @@ async fn run_command(
         formatter.print_task_end(&host_result.host_name, task_name, host_result);
     };
 
+    // Callback to print when a task group starts
+    let on_group_start = |group_name: &str| {
+        OutputFormatter::print_group_start(group_name);
+    };
+
+    // Callback to print when a task group completes
+    let on_group_complete = |result: &rotomate::executor::TaskGroupResult| {
+        OutputFormatter::print_group_end(result);
+    };
+
     // Run tasks
     let results = if let Some(task) = task_name {
         match executor
@@ -348,6 +358,7 @@ async fn run_command(
                 vec![rotomate::executor::TaskGroupResult {
                     group_name: task.clone(),
                     tasks: vec![task_execution],
+                    duration_secs: 0.0,
                 }]
             }
             None => {
@@ -355,7 +366,14 @@ async fn run_command(
             }
         }
     } else {
-        executor.run_all(on_host_start, on_host_complete).await
+        executor
+            .run_all(
+                on_host_start,
+                on_host_complete,
+                on_group_start,
+                on_group_complete,
+            )
+            .await
     };
 
     // Display captured output after all tasks complete (if capture_output enabled)
@@ -419,6 +437,7 @@ fn write_captured_output_to_file(
     writeln!(file)?;
 
     for result in results {
+        writeln!(file, "=== [{}] START ===", result.group_name)?;
         for task_execution in &result.tasks {
             for host_result in &task_execution.hosts {
                 // Write task start marker
@@ -463,6 +482,15 @@ fn write_captured_output_to_file(
                 )?;
             }
         }
+        let group_status = if result.success() { "SUCCESS" } else { "FAILED" };
+        writeln!(
+            file,
+            "=== [{}] END: {} ({} succeeded, {} failed) ===",
+            result.group_name,
+            group_status,
+            result.success_task_count(),
+            result.failed_task_count(),
+        )?;
     }
 
     println!("Captured output written to: {path}");
