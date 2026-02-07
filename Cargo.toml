@@ -16,7 +16,7 @@ env_logger = "0.11"
 futures = "0.3"
 minijinja = "2"
 log = "0.4"
-russh = "0.56"
+russh = "0.57"
 russh-sftp = { git = "https://github.com/masmullin2000/russh-sftp.git", branch = "task/my_fixes" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -28,7 +28,7 @@ rpassword = "7"
 whoami = "2"
 mimalloc = "0.1.48"
 bytes = "1.11.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "form"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [profile.release]

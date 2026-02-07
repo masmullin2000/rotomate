@@ -1014,7 +1014,7 @@ impl<'de> serde::Deserialize<'de> for ExecCmdline {
 }
 
 /// Get a human-readable type name for a `serde_yaml::Value`.
-fn yaml_type_name(value: &serde_yaml::Value) -> &'static str {
+const fn yaml_type_name(value: &serde_yaml::Value) -> &'static str {
     match value {
         serde_yaml::Value::Null => "null",
         serde_yaml::Value::Bool(_) => "a boolean",

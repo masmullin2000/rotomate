@@ -98,17 +98,10 @@ fn load_config_recursive(
     let mut config: schema::Config = serde_yaml::from_value(raw_value).map_err(|e| {
         let msg = e.to_string();
         let line_hint = find_error_line(&content, &msg);
-        match line_hint {
-            Some(line_num) => anyhow::anyhow!(
-                "\n  {}:{}: {msg}",
-                path.display(),
-                line_num
-            ),
-            None => anyhow::anyhow!(
-                "\n  {}: {msg}",
-                path.display()
-            ),
-        }
+        line_hint.map_or_else(
+            || anyhow::anyhow!("\n  {}: {msg}", path.display()),
+            |line_num| anyhow::anyhow!("\n  {}:{}: {msg}", path.display(), line_num),
+        )
     })?;
 
     // Store the merged vars in config for later use (executor needs them)
@@ -324,7 +317,7 @@ fn diagnose_yaml_parse_error(content: &str, error_msg: &str) -> Option<String> {
     }
 }
 
-/// Extract line number from a serde_yaml error message.
+/// Extract line number from a `serde_yaml` error message.
 /// Matches patterns like "at line 21 column 58".
 fn extract_error_line_number(error_msg: &str) -> Option<usize> {
     let marker = "at line ";

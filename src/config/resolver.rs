@@ -27,7 +27,7 @@ pub struct Config {
     pub tasks: HashMap<String, Task>,
     /// Task groups - each group executes in parallel, tasks within a group execute sequentially.
     pub task_groups: Vec<TaskGroup>,
-    /// SSH inactivity timeout in seconds.
+    /// SSH timeout in seconds.
     pub timeout: u64,
     /// Template variables for runtime rendering.
     pub vars: HashMap<String, serde_yaml::Value>,

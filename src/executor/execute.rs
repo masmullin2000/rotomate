@@ -337,7 +337,22 @@ impl Executor {
         let mut host_results = Vec::new();
         let verbose = task.verbose.unwrap_or(false) || global_verbose;
         let capture_output = task.capture_output.unwrap_or(false) || global_capture_output;
-        let timeout = task.timeout();
+
+        // Choose the right timeout to display: proxmox timeout for proxmox-only tasks,
+        // SSH timeout otherwise
+        let has_ssh_ops = if task.has_steps() {
+            task.steps.iter().any(crate::config::TaskStep::needs_ssh)
+        } else {
+            !task.remote_command.is_empty()
+                || !task.upload.is_empty()
+                || !task.download.is_empty()
+                || !task.delete_remote.is_empty()
+        };
+        let timeout = if !has_ssh_ops && !task.proxmox_command.is_empty() {
+            proxmox_client.map_or_else(|| task.timeout(), ProxmoxClient::timeout_secs)
+        } else {
+            task.timeout()
+        };
 
         // Run local commands once (not per-host) — skip when using steps
         // (local_command is part of steps and runs per-host)

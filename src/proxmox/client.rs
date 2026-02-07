@@ -10,6 +10,7 @@ pub struct ProxmoxClient {
     base_url: String,
     token_id: String,
     token_secret: String,
+    timeout_secs: u64,
 }
 
 /// Response wrapper for Proxmox API responses.
@@ -39,6 +40,11 @@ struct TaskUpid {
 }
 
 impl ProxmoxClient {
+    /// Returns the configured timeout in seconds.
+    pub const fn timeout_secs(&self) -> u64 {
+        self.timeout_secs
+    }
+
     /// Create a new Proxmox client.
     ///
     /// # Arguments
@@ -67,6 +73,7 @@ impl ProxmoxClient {
             client,
             base_url,
             token_id: token_id.to_string(),
+            timeout_secs,
             token_secret: token_secret.to_string(),
         })
     }
