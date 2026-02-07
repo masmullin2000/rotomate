@@ -24,7 +24,7 @@ just run -- config/main.yaml              # Run with config file
 just run -- config/main.yaml -v           # Verbose output
 just run -- config/main.yaml --root       # Prompt for sudo password
 just run -- config/main.yaml --check      # Validate config without executing
-just run -- config/main.yaml --list all   # List hosts, tasks, groups, campaigns
+just run -- config/main.yaml --list       # List hosts, tasks, groups, campaigns
 
 # Multiple config files (merged in order)
 just run -- config/hosts.yaml config/tasks.yaml config/runs.yaml

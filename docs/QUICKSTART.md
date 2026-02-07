@@ -487,7 +487,5 @@ rot config.yaml --root             # Prompt for global sudo password
 rot config.yaml -c deploy          # Run specific campaign
 rot config.yaml -o std             # Capture and display output after completion
 rot config.yaml -o output.txt     # Capture output to file
-rot config.yaml --list hosts       # List configured hosts
-rot config.yaml --list tasks       # List configured tasks
-rot config.yaml --list campaigns   # List configured campaigns
+rot config.yaml --list             # List hosts, tasks, groups, campaigns
 ```

@@ -18,7 +18,7 @@ just build release gnu          # Release build (static glibc binary)
 rot config.yaml                    # Run tasks (default)
 rot config.yaml --check            # Validate config
 rot config.yaml -v                 # Verbose output
-rot config.yaml --list hosts       # List hosts/tasks/groups
+rot config.yaml --list             # List hosts/tasks/groups
 ```
 
 ## Documentation

@@ -301,51 +301,21 @@ test_09_check() {
     end_test
 }
 
-test_09_list_hosts() {
-    begin_test "09 check_and_list — --list hosts"
+test_09_list() {
+    begin_test "09 check_and_list — --list"
 
     local out
-    out=$(run_rot "$SCRIPT_DIR/09_check_and_list.yaml" --list hosts)
+    out=$(run_rot "$SCRIPT_DIR/09_check_and_list.yaml" --list)
 
     assert_contains "host alpha" "$out" "alpha"
     assert_contains "host bravo" "$out" "bravo"
     assert_contains "host charlie" "$out" "charlie"
-
-    end_test
-}
-
-test_09_list_tasks() {
-    begin_test "09 check_and_list — --list tasks"
-
-    local out
-    out=$(run_rot "$SCRIPT_DIR/09_check_and_list.yaml" --list tasks)
-
     assert_contains "task ping" "$out" "ping"
     assert_contains "task deploy" "$out" "deploy"
     assert_contains "task rollback" "$out" "rollback"
-
-    end_test
-}
-
-test_09_list_groups() {
-    begin_test "09 check_and_list — --list groups"
-
-    local out
-    out=$(run_rot "$SCRIPT_DIR/09_check_and_list.yaml" --list groups)
-
     assert_contains "group infra_check" "$out" "infra_check"
     assert_contains "group app_deploy" "$out" "app_deploy"
     assert_contains "group app_rollback" "$out" "app_rollback"
-
-    end_test
-}
-
-test_09_list_campaigns() {
-    begin_test "09 check_and_list — --list campaigns"
-
-    local out
-    out=$(run_rot "$SCRIPT_DIR/09_check_and_list.yaml" --list campaigns)
-
     assert_contains "campaign deploy_pipeline" "$out" "deploy_pipeline"
     assert_contains "campaign rollback_pipeline" "$out" "rollback_pipeline"
     assert_contains "campaign full" "$out" "full"
@@ -429,10 +399,7 @@ if should_run "08"; then
 fi
 if should_run "09"; then
     test_09_check
-    test_09_list_hosts
-    test_09_list_tasks
-    test_09_list_groups
-    test_09_list_campaigns
+    test_09_list
 fi
 
 # SSH-required tests

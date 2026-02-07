@@ -176,9 +176,5 @@ rot config.yaml -c deploy             # Run specific campaign
 rot config.yaml -l                    # Lenient: don't auto-include deps
 rot config.yaml -o std                # Capture output to stdout
 rot config.yaml -o out.txt            # Capture output to file
-rot config.yaml --list hosts          # List hosts
-rot config.yaml --list tasks          # List tasks
-rot config.yaml --list groups         # List task groups
-rot config.yaml --list campaigns      # List campaigns
-rot config.yaml --list all            # List everything
+rot config.yaml --list                # List hosts, tasks, groups, campaigns
 ```

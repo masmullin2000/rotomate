@@ -33,9 +33,9 @@ struct Cli {
     #[arg(long)]
     check: bool,
 
-    /// List hosts, tasks, groups, or campaigns from configuration
-    #[arg(long, value_enum)]
-    list: Option<ListType>,
+    /// List hosts, tasks, groups, and campaigns from configuration
+    #[arg(long)]
+    list: bool,
 
     /// Run only a specific task (by name)
     #[arg(short, long)]
@@ -92,20 +92,6 @@ impl From<LogLevel> for log::LevelFilter {
     }
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum ListType {
-    /// List everything (hosts, tasks, groups, campaigns)
-    All,
-    /// List all hosts
-    Hosts,
-    /// List all tasks
-    Tasks,
-    /// List all task groups
-    Groups,
-    /// List all campaigns
-    Campaigns,
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -117,8 +103,8 @@ fn main() -> Result<()> {
 
     if cli.check {
         check_command(&cli.config)
-    } else if let Some(what) = cli.list {
-        list_command(&cli.config, what, cli.verbose)
+    } else if cli.list {
+        list_command(&cli.config, cli.verbose)
     } else {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -544,26 +530,18 @@ fn check_command(config_paths: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn list_command(config_paths: &[PathBuf], what: ListType, verbose: bool) -> Result<()> {
+fn list_command(config_paths: &[PathBuf], verbose: bool) -> Result<()> {
     let config = load_configs(config_paths)?;
     let resolved: config::Config = config.try_into()?;
 
-    match what {
-        ListType::All => {
-            println!("=== Hosts ===");
-            list_hosts(&resolved, verbose);
-            println!("\n=== Tasks ===");
-            list_tasks(&resolved, verbose);
-            println!("\n=== Groups ===");
-            list_groups(&resolved, verbose);
-            println!("\n=== Campaigns ===");
-            list_campaigns(&resolved, verbose);
-        }
-        ListType::Hosts => list_hosts(&resolved, verbose),
-        ListType::Tasks => list_tasks(&resolved, verbose),
-        ListType::Groups => list_groups(&resolved, verbose),
-        ListType::Campaigns => list_campaigns(&resolved, verbose),
-    }
+    println!("=== Hosts ===");
+    list_hosts(&resolved, verbose);
+    println!("\n=== Tasks ===");
+    list_tasks(&resolved, verbose);
+    println!("\n=== Groups ===");
+    list_groups(&resolved, verbose);
+    println!("\n=== Campaigns ===");
+    list_campaigns(&resolved, verbose);
 
     Ok(())
 }

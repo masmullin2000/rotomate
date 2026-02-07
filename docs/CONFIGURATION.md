@@ -29,12 +29,8 @@ rot config.yaml -o std
 # Capture output to a file
 rot config.yaml -o /tmp/output.txt
 
-# List hosts, tasks, or groups
-rot config.yaml --list hosts
-rot config.yaml --list tasks
-rot config.yaml --list groups
-rot config.yaml --list campaigns
-rot config.yaml --list all
+# List hosts, tasks, groups, and campaigns
+rot config.yaml --list
 ```
 
 ## Configuration File Structure

@@ -2,19 +2,11 @@
 #
 # Tests:
 #   - --check validates config without executing
-#   - --list all   lists everything
-#   - --list hosts lists hosts
-#   - --list tasks lists tasks
-#   - --list groups lists groups
-#   - --list campaigns lists campaigns
+#   - --list  lists everything (hosts, tasks, groups, campaigns)
 #
 # Run:
 #   rot test_config/09_check_and_list.yaml --check
-#   rot test_config/09_check_and_list.yaml --list all
-#   rot test_config/09_check_and_list.yaml --list hosts
-#   rot test_config/09_check_and_list.yaml --list tasks
-#   rot test_config/09_check_and_list.yaml --list groups
-#   rot test_config/09_check_and_list.yaml --list campaigns
+#   rot test_config/09_check_and_list.yaml --list
 ---
 
 defaults:
