@@ -2,6 +2,19 @@
 
 SSH automation tool that runs tasks across multiple remote hosts in parallel using YAML configuration.
 
+### Why "rotomate"
+
+It's a warning.
+
+The yaml scripts you write to use rotomate will rot.  You will build up a set
+of scripts that you will constantly tweak and modify as your infrastructure changes.
+You'll have a different file that you upload, and you will just hard-code it in
+a given task.  You'll then need to upload a different file for a new purpose,
+and re-hard-code it in overwriting the previous location, this will break your previous script.
+
+Hopefully those changes are just to keys or hosts, and not to the actual tasks that you run.
+But that's the risk.
+
 ## Building
 
 Requires Rust and [just](https://github.com/casey/just).
