@@ -152,8 +152,7 @@ impl Config {
         &self,
     ) -> impl Iterator<Item = anyhow::Result<(String, crate::executor::Host)>> + use<'_> {
         self.hosts.iter().map(|(name, host)| {
-            let resolved_host = self.resolve_host(name, host)?;
-            Ok((name.clone(), resolved_host))
+            Ok((name.clone(), self.resolve_host(name, host)?))
         })
     }
 
@@ -783,6 +782,12 @@ pub struct Task {
     /// Sudo password for `become_root` tasks (set at runtime, not from YAML).
     #[serde(skip)]
     pub sudo_password: Option<String>,
+
+    /// Per-file scoped variables (inherited from parent + file's own vars).
+    /// Set by the loader, not from YAML. Used at execution time to override
+    /// global config vars so each file's tasks see their own variable scope.
+    #[serde(skip)]
+    pub vars: HashMap<String, serde_yaml::Value>,
 
     /// Human-readable description of the task.
     #[serde(default)]

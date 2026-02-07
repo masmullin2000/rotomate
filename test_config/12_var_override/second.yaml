@@ -1,0 +1,16 @@
+# 12 — Second imported file overrides color
+---
+
+vars:
+  color: "blue"
+
+tasks:
+  echo_second:
+    description: "Echo color from second"
+    local_command:
+      - 'echo "second={{ color }}"'
+
+task_groups:
+  second_group:
+    - name: "Second Color"
+    - task: echo_second

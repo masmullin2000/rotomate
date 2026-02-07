@@ -43,7 +43,7 @@ fn load_config_recursive(
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
     // Parse as raw YAML Value first
-    let mut raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| {
+    let raw_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| {
         let msg = e.to_string();
         if let Some(hint) = diagnose_yaml_parse_error(&content, &msg) {
             return anyhow::anyhow!("\n  {}: {hint}", path.display());
@@ -55,43 +55,30 @@ fn load_config_recursive(
     let imports = extract_imports(&raw_value);
     let file_vars = extract_vars(&raw_value);
 
-    // Merge file's own vars on top of inherited vars BEFORE processing imports
-    // so that imported files can use vars defined in the importing file
-    let mut merged_vars = inherited_vars.clone();
-    merged_vars.extend(file_vars);
+    // Compute file-scoped vars: inherited from parent + this file's own declarations.
+    // These are the vars that this file's tasks should see at execution time.
+    let mut file_scoped_vars = inherited_vars.clone();
+    file_scoped_vars.extend(file_vars.clone());
 
-    // Process imports with the merged vars
+    // Recursively load imports, accumulating their vars and merged config.
+    // Each import receives the parent's file-scoped vars (not sibling import vars).
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let (mut merged_vars, mut merged_config) = imports.iter().try_fold(
-        (merged_vars, schema::Config::default()),
-        |(mut vars, mut config), import_path| {
-            let full_path = if import_path.is_absolute() {
-                import_path.clone()
-            } else {
-                base_dir.join(import_path)
-            };
-
-            let expanded_path = expand_tilde(&full_path);
-            let imported = load_config_recursive(&expanded_path, visited, &vars)?;
-
-            vars.extend(imported.vars.clone());
-            config.merge(imported);
-            anyhow::Ok((vars, config))
-        },
-    )?;
+    let (merged_vars, mut merged_config) =
+        load_imports(&imports, base_dir, visited, inherited_vars, file_vars)?;
 
     // Render templates in the YAML value tree
     // Use lenient mode to allow undefined host.* variables (resolved at execution time)
     let env = minijinja::Environment::build_lenient();
 
-    // First, render vars that reference other vars (iteratively until stable)
-    merged_vars = render_vars(&env, merged_vars)?;
+    // Render vars that reference other vars (iteratively until stable)
+    let merged_vars = render_vars(&env, merged_vars)?;
+    let file_scoped_vars = render_vars(&env, file_scoped_vars)?;
 
     let context = vars_to_context_with_placeholders(&merged_vars);
 
     // Selectively render YAML, skipping task command fields that need execution-time variables
     // (host.*, builtin.*). These fields are rendered later in the executor.
-    raw_value = render_yaml_selective(&env, raw_value, &context)
+    let raw_value = render_yaml_selective(&env, raw_value, &context)
         .with_context(|| format!("Failed to render templates in: {}", path.display()))?;
 
     // Deserialize the rendered value into schema::Config
@@ -106,6 +93,13 @@ fn load_config_recursive(
 
     // Store the merged vars in config for later use (executor needs them)
     config.vars.clone_from(&merged_vars);
+
+    // Attach file-scoped vars to each task defined in THIS file.
+    // At execution time, these override config.vars so each file's tasks
+    // see their own variable scope (inherited from parent + file's own).
+    for task in config.tasks.values_mut() {
+        task.vars.clone_from(&file_scoped_vars);
+    }
 
     // Expand ~ in paths
     expand_paths(&mut config);
@@ -136,6 +130,43 @@ fn load_config_recursive(
     merged_config.merge(config);
 
     Ok(merged_config)
+}
+
+/// Recursively load imported config files, merging their vars and configs.
+///
+/// Each import receives the parent's file-scoped vars (inherited + file's own),
+/// NOT vars from sibling imports. This prevents variable leakage between siblings.
+/// The returned `merged_vars` includes import vars for non-deferred rendering,
+/// but per-task vars handle file-scoped overrides at execution time.
+fn load_imports(
+    imports: &[PathBuf],
+    base_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    inherited_vars: &HashMap<String, serde_yaml::Value>,
+    file_vars: HashMap<String, serde_yaml::Value>,
+) -> Result<(HashMap<String, serde_yaml::Value>, schema::Config)> {
+    // Parent's file-scoped vars: what each import inherits
+    let mut parent_vars = inherited_vars.clone();
+    parent_vars.extend(file_vars);
+
+    let mut merged_vars = parent_vars.clone();
+    let mut config = schema::Config::default();
+
+    for import_path in imports {
+        let full_path = if import_path.is_absolute() {
+            import_path.clone()
+        } else {
+            base_dir.join(import_path)
+        };
+
+        // Each import sees the parent's vars, not sibling import vars
+        let imported = load_config_recursive(&expand_tilde(&full_path), visited, &parent_vars)?;
+        // Accumulate import vars for non-deferred rendering (e.g. description fields)
+        merged_vars.extend(imported.vars.clone());
+        config.merge(imported);
+    }
+
+    Ok((merged_vars, config))
 }
 
 /// Keys within tasks that should NOT be rendered at config load time.

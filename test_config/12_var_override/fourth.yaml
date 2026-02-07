@@ -1,0 +1,14 @@
+# 12 — Fourth imported file has NO vars
+# Should inherit color from main (red), not from sibling third (green)
+---
+
+tasks:
+  echo_fourth:
+    description: "Echo color from fourth (inherits from main)"
+    local_command:
+      - 'echo "fourth={{ color }}"'
+
+task_groups:
+  fourth_group:
+    - name: "Fourth Color"
+    - task: echo_fourth

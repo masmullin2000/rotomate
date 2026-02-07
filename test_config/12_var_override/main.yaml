@@ -1,0 +1,32 @@
+# 12 — Variable override across imported files
+#
+# Tests:
+#   - Each file's vars are scoped to its own tasks
+#   - Imported file vars do NOT leak back to the importer
+#   - A file with no vars inherits from the importer, not from siblings
+#
+# Expected output:
+#   main=red, second=blue, third=green, fourth=red
+#
+# Run:
+#   rot test_config/12_var_override/main.yaml -v
+---
+
+vars:
+  color: "red"
+
+imports:
+  - second.yaml
+  - third.yaml
+  - fourth.yaml
+
+tasks:
+  echo_main:
+    description: "Echo color from main"
+    local_command:
+      - 'echo "main={{ color }}"'
+
+task_groups:
+  main_group:
+    - name: "Main Color"
+    - task: echo_main

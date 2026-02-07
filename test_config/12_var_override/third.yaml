@@ -1,0 +1,16 @@
+# 12 — Third imported file overrides color
+---
+
+vars:
+  color: "green"
+
+tasks:
+  echo_third:
+    description: "Echo color from third"
+    local_command:
+      - 'echo "third={{ color }}"'
+
+task_groups:
+  third_group:
+    - name: "Third Color"
+    - task: echo_third

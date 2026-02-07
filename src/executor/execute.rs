@@ -227,8 +227,9 @@ impl Executor {
                 task_group: String::new(),
                 timestamp: self.timestamp.clone(),
             };
+            let vars = effective_vars(&self.config.vars, &task.vars);
             let (local_cmd, template_error) =
-                render_local_commands(&task.local_command, &self.config.vars, &builtin);
+                render_local_commands(&task.local_command, &vars, &builtin);
 
             // If template rendering failed, return error result
             if let Some(err) = template_error {
@@ -367,8 +368,9 @@ impl Executor {
                 task_group: task_group_name.to_string(),
                 timestamp: timestamp.to_string(),
             };
+            let vars = effective_vars(&config.vars, &task.vars);
             let (local_cmd, template_error) =
-                render_local_commands(&task.local_command, &config.vars, &builtin);
+                render_local_commands(&task.local_command, &vars, &builtin);
 
             // If template rendering failed, report error and stop
             if let Some(err) = template_error {
@@ -484,9 +486,10 @@ impl Executor {
                 };
 
                 // Capture template rendering error to report later
+                let vars = effective_vars(&config.vars, &task.vars);
                 let template_error = if task.has_steps() {
                     // Render steps with host + builtin context
-                    match render_steps(&config.vars, host.context(), &builtin, &task.steps) {
+                    match render_steps(&vars, host.context(), &builtin, &task.steps) {
                         Ok(rendered_steps) => {
                             task.steps = rendered_steps;
                             None
@@ -495,7 +498,7 @@ impl Executor {
                     }
                 } else {
                     match RenderedTaskFields::try_new(
-                        &config.vars,
+                        &vars,
                         host.context(),
                         &builtin,
                         &remote_commands,
@@ -570,6 +573,21 @@ impl Executor {
             hosts: host_results,
         }
     }
+}
+
+/// Compute effective vars for a task: config-level vars as base, task-level vars as overrides.
+/// This ensures each file's tasks see their own variable scope while still having access
+/// to globally accumulated vars as fallback.
+fn effective_vars(
+    config_vars: &HashMap<String, serde_yaml::Value>,
+    task_vars: &HashMap<String, serde_yaml::Value>,
+) -> HashMap<String, serde_yaml::Value> {
+    if task_vars.is_empty() {
+        return config_vars.clone();
+    }
+    let mut vars = config_vars.clone();
+    vars.extend(task_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    vars
 }
 
 /// Render local commands with vars and builtin context.

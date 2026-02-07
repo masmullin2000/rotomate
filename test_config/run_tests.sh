@@ -344,6 +344,20 @@ test_11() {
     end_test
 }
 
+test_12() {
+    begin_test "12 var_override — per-file variable scoping across imports"
+
+    local out
+    out=$(run_rot "$SCRIPT_DIR/12_var_override/main.yaml" -v)
+
+    assert_contains "main=red"   "$out" "main=red"
+    assert_contains "second=blue"  "$out" "second=blue"
+    assert_contains "third=green"  "$out" "third=green"
+    assert_contains "fourth=red"   "$out" "fourth=red"
+
+    end_test
+}
+
 test_1002() {
     begin_test "1002 timeout — sleep beyond default timeout"
 
@@ -401,6 +415,7 @@ if should_run "09"; then
     test_09_check
     test_09_list
 fi
+if should_run "12"; then test_12; fi
 
 # SSH-required tests
 if should_run "02"; then test_02; fi
