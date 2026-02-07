@@ -349,21 +349,18 @@ async fn run_command(
 
     // Run tasks
     let results = if let Some(task) = task_name {
-        match executor
+        if let Some(task_execution) = executor
             .run_task(&task, on_host_start, on_host_complete)
             .await
         {
-            Some(task_execution) => {
-                // Wrap single task execution in a synthetic task group
-                vec![rotomate::executor::TaskGroupResult {
-                    group_name: task.clone(),
-                    tasks: vec![task_execution],
-                    duration_secs: 0.0,
-                }]
-            }
-            None => {
-                anyhow::bail!("Task '{task}' not found in configuration");
-            }
+            // Wrap single task execution in a synthetic task group
+            vec![rotomate::executor::TaskGroupResult {
+                group_name: task.clone(),
+                tasks: vec![task_execution],
+                duration_secs: 0.0,
+            }]
+        } else {
+            anyhow::bail!("Task '{task}' not found in configuration");
         }
     } else {
         executor
@@ -393,13 +390,10 @@ async fn run_command(
     }
 
     // Display final summary
-    let mut all_success = true;
-    for result in &results {
+    let all_success = results.iter().fold(true, |acc, result| {
         formatter.print_summary(result);
-        if !result.success() {
-            all_success = false;
-        }
-    }
+        acc && result.success()
+    });
 
     // Display total execution time
     let total_secs = start_time.elapsed().as_secs_f64();
@@ -441,10 +435,7 @@ fn write_captured_output_to_file(
         for task_execution in &result.tasks {
             for host_result in &task_execution.hosts {
                 // Write task start marker
-                let timeout = host_result
-                    .result
-                    .as_ref()
-                    .map_or(0, |tr| tr.timeout);
+                let timeout = host_result.result.as_ref().map_or(0, |tr| tr.timeout);
                 writeln!(
                     file,
                     "#[{}: START -> {} (timeout: {}s)]#",
@@ -474,7 +465,11 @@ fn write_captured_output_to_file(
                 }
 
                 // Write task end marker
-                let status = if host_result.success() { "SUCCESS" } else { "FAILED" };
+                let status = if host_result.success() {
+                    "SUCCESS"
+                } else {
+                    "FAILED"
+                };
                 writeln!(
                     file,
                     "#[{}: END -> {}: {}]#",
@@ -482,7 +477,11 @@ fn write_captured_output_to_file(
                 )?;
             }
         }
-        let group_status = if result.success() { "SUCCESS" } else { "FAILED" };
+        let group_status = if result.success() {
+            "SUCCESS"
+        } else {
+            "FAILED"
+        };
         writeln!(
             file,
             "=== [{}] END: {} ({} succeeded, {} failed) ===",

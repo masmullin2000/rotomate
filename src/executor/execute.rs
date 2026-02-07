@@ -468,9 +468,7 @@ impl Executor {
             };
         }
 
-        // Execute on all hosts in parallel using FuturesUnordered
-        // to yield results as they complete
-        let futures: FuturesUnordered<_> = config
+        let futures = config
             .hosts(task_item)
             .map(|host| {
                 on_host_start(&host.ctx.name, &task_item.task_name, timeout);
@@ -488,15 +486,12 @@ impl Executor {
                     proxmox_client,
                 )
             })
-            .collect();
+            .collect::<FuturesUnordered<_>>() // needed for parallel execution and streaming results as they complete
+            .inspect(|result| on_host_complete(&task_item.task_name, result))
+            .collect::<Vec<_>>()
+            .await;
 
-        // Collect results as they complete, calling the callback for each
-        host_results.extend(
-            futures
-                .inspect(|result| on_host_complete(&task_item.task_name, result))
-                .collect::<Vec<_>>()
-                .await,
-        );
+        host_results.extend(futures);
 
         TaskExecution {
             task_name: task_item.task_name.clone(),
@@ -622,7 +617,7 @@ fn prepare_host_task(
         if let Some(err) = template_error {
             return HostResult {
                 host_name: host.ctx.name.clone(),
-                result: Err(format!("Template rendering failed: {err}"),),
+                result: Err(format!("Template rendering failed: {err}")),
             };
         }
 
