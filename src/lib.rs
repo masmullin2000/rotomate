@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod executor;
+pub mod init;
 pub mod output;
 pub mod proxmox;
 pub mod shell;

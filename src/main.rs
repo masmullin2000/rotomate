@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 use mimalloc::MiMalloc;
 
@@ -20,11 +20,15 @@ use rotomate::output::OutputFormatter;
 #[derive(Parser)]
 #[command(name = "rot")]
 #[command(about = "SSH automation tool for running tasks across multiple hosts")]
+#[command(subcommand_negates_reqs = true)]
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// Path to YAML configuration file(s)
     #[arg(required = true)]
     config: Vec<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
 
     /// Log level for rotomate output
     #[arg(short = 'L', long, value_enum, default_value = "info")]
@@ -61,6 +65,19 @@ struct Cli {
     /// Prompt for sudo password (required for tasks with `become_root: true`)
     #[arg(long)]
     root: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate an interactive rotomate configuration file
+    Init(InitArgs),
+}
+
+#[derive(Parser)]
+struct InitArgs {
+    /// Output file path
+    #[arg(short, long, default_value = "rot.yaml")]
+    output: PathBuf,
 }
 
 #[derive(Clone, Copy, ValueEnum, Default)]
@@ -101,6 +118,10 @@ fn main() -> Result<()> {
         .filter_module("rotomate", cli.log_level.into()) // rotomate logs at specified level
         .parse_default_env() // Allow RUST_LOG to override
         .init();
+
+    if let Some(Commands::Init(args)) = cli.command {
+        return rotomate::init::run(&args.output);
+    }
 
     if cli.check {
         check_command(&cli.config)
