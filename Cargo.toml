@@ -16,7 +16,7 @@ env_logger = "0.11"
 futures = "0.3"
 minijinja = "2"
 log = "0.4"
-russh = "0.57"
+russh = "0.60"
 russh-sftp = { git = "https://github.com/masmullin2000/russh-sftp.git", branch = "task/my_fixes" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
