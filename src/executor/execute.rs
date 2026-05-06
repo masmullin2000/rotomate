@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
-use futures::stream::{self, FuturesUnordered, StreamExt};
+use futures::stream::{FuturesUnordered, StreamExt};
 use log::debug;
-use tokio::sync::watch;
+use tokio::sync::{watch, OnceCell};
 
 use crate::config::template::EnvironmentExt;
 use crate::config::{
@@ -159,8 +159,13 @@ impl Executor {
         futures.collect::<Vec<TaskGroupResult>>().await
     }
 
-    /// Execute a single task group (tasks execute sequentially within the group).
-    #[allow(clippy::too_many_arguments)]
+    /// Execute a single task group with per-host progression.
+    ///
+    /// Each host progresses through its tasks independently — fast hosts move on
+    /// to subsequent tasks without waiting for slow hosts to finish earlier tasks.
+    /// Local-once commands (non-steps tasks with `local_command`) are executed
+    /// exactly once via `OnceCell`, regardless of which host reaches the task first.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     async fn execute_task_group<S, F>(
         config: &Config,
         sudo_password: Option<&String>,
@@ -177,26 +182,174 @@ impl Executor {
         F: Fn(&str, &HostResult) + Send + Sync,
     {
         let start_time = Instant::now();
-        let task_group_name = &task_group.name;
-        let task_group_vars = &task_group.vars;
-        let tasks = stream::iter(&task_group.tasks)
-            .then(|task_item| {
-                Self::execute_task(
-                    config,
-                    sudo_password,
-                    proxmox_client,
-                    task_item,
-                    task_group_name,
-                    task_group_vars,
-                    &on_host_start,
-                    &on_host_complete,
-                    global_verbose,
-                    global_capture_output,
-                    timestamp,
-                )
+
+        // 1. Pre-resolve TaskMeta for each task item
+        let metas: Vec<Option<TaskMeta<'_>>> = task_group
+            .tasks
+            .iter()
+            .map(|item| {
+                resolve_task_meta(config, proxmox_client, item, global_verbose, global_capture_output)
             })
-            .collect()
-            .await;
+            .collect();
+
+        // 2. Create OnceCell for each task that has local-once commands.
+        //    The cell holds (HostResult, stopped_early).
+        let local_once_cells: Vec<Option<Arc<OnceCell<LocalOnceResult>>>> = metas
+            .iter()
+            .map(|meta| {
+                meta.as_ref()
+                    .filter(|m| m.has_local_once)
+                    .map(|_| Arc::new(OnceCell::new()))
+            })
+            .collect();
+
+        // 3. Collect the set of all unique host names across all task items
+        let all_hosts: Vec<String> = {
+            let mut seen = HashSet::new();
+            task_group
+                .tasks
+                .iter()
+                .flat_map(|item| &item.host_names)
+                .filter(|name| seen.insert(name.as_str()))
+                .cloned()
+                .collect()
+        };
+
+        // 4. Spawn a future per host that iterates ALL tasks in order.
+        //    For local-only tasks (no hosts targeting them), the first host to
+        //    reach the task triggers local-once via OnceCell. If there are NO
+        //    hosts at all, we add a synthetic "__local__" entry so local-once
+        //    tasks still execute.
+        let on_host_start = &on_host_start;
+        let on_host_complete = &on_host_complete;
+        let task_items = &task_group.tasks;
+        let metas = &metas;
+        let local_once_cells = &local_once_cells;
+        let task_group_name = &task_group.name;
+        let group_vars = &task_group.vars;
+
+        // Ensure at least one entry so local-only task groups still execute
+        let iteration_hosts: Vec<String> = if all_hosts.is_empty() {
+            vec!["__local__".to_string()]
+        } else {
+            all_hosts
+        };
+
+        // Each host future returns Vec<(task_idx, HostResult)>
+        let host_futures: FuturesUnordered<_> = iteration_hosts
+            .iter()
+            .map(|host_name| {
+                async move {
+                    let mut results: Vec<(usize, HostResult)> = Vec::new();
+                    for (task_idx, task_item) in task_items.iter().enumerate() {
+                        let Some(meta) = &metas[task_idx] else {
+                            continue;
+                        };
+
+                        // Handle local-once commands via OnceCell
+                        let mut local_stopped = false;
+                        if let Some(cell) = &local_once_cells[task_idx] {
+                            let cell = cell.clone();
+                            let (local_result, stopped) = cell
+                                .get_or_init(|| async {
+                                    on_host_start("local", &task_item.task_name, meta.timeout);
+                                    let result = execute_local_once_for_task(
+                                        meta.task,
+                                        &task_item.task_name,
+                                        &config.vars,
+                                        group_vars,
+                                        task_group_name,
+                                        timestamp,
+                                        meta.verbose,
+                                        meta.capture_output,
+                                        meta.timeout,
+                                    )
+                                    .await;
+                                    on_host_complete(&task_item.task_name, &result.0);
+                                    result
+                                })
+                                .await;
+                            local_stopped = *stopped;
+
+                            // Only the first host to init gets the result added to its vec;
+                            // but we need exactly one copy in the final results. We'll handle
+                            // dedup at the reassembly step — just skip adding here.
+                            // (The OnceCell ensures callbacks fire exactly once.)
+                            let _ = (local_result, local_stopped);
+                        }
+
+                        // Skip remote portion if local commands failed with stop_on_error
+                        if local_stopped {
+                            continue;
+                        }
+
+                        // Run the remote portion if this host is targeted and task has remote ops
+                        if meta.has_remote_ops
+                            && task_item.host_names.contains(host_name)
+                            && let Some(host) = config.hosts.get(host_name)
+                        {
+                            on_host_start(&host.ctx.name, &task_item.task_name, meta.timeout);
+                            let host_result = prepare_host_task(
+                                host,
+                                meta.task,
+                                &task_item.task_name,
+                                sudo_password,
+                                task_group_name,
+                                group_vars,
+                                config,
+                                global_verbose,
+                                global_capture_output,
+                                timestamp,
+                                proxmox_client,
+                            )
+                            .await;
+                            on_host_complete(&task_item.task_name, &host_result);
+                            results.push((task_idx, host_result));
+                        }
+                    }
+                    results
+                }
+            })
+            .collect();
+
+        // Collect all per-host results
+        let all_results: Vec<Vec<(usize, HostResult)>> = host_futures.collect().await;
+
+        // 5. Reassemble into Vec<TaskExecution> in original task order
+        let num_tasks = task_items.len();
+        let mut task_hosts: Vec<Vec<HostResult>> = (0..num_tasks).map(|_| Vec::new()).collect();
+
+        // Add local-once results (from OnceCell, exactly one per task)
+        for (task_idx, cell) in local_once_cells.iter().enumerate() {
+            if let Some(cell) = cell
+                && let Some((local_result, _)) = cell.get()
+            {
+                task_hosts[task_idx].push(local_result.clone());
+            }
+        }
+
+        // Add per-host remote results
+        for host_results in all_results {
+            for (task_idx, host_result) in host_results {
+                task_hosts[task_idx].push(host_result);
+            }
+        }
+
+        let tasks: Vec<TaskExecution> = task_items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                let hosts = std::mem::take(&mut task_hosts[idx]);
+                // Skip tasks that had no meta (unknown task name)
+                if metas[idx].is_none() && hosts.is_empty() {
+                    return None;
+                }
+                Some(TaskExecution {
+                    task_name: item.task_name.clone(),
+                    hosts,
+                })
+            })
+            .collect();
 
         TaskGroupResult {
             group_name: task_group.name.clone(),
@@ -498,6 +651,133 @@ impl Executor {
             hosts: host_results,
         }
     }
+}
+
+/// Cached local-once execution result: `(HostResult, stopped_early)`.
+type LocalOnceResult = (HostResult, bool);
+
+/// Pre-resolved metadata for a task item, used by the per-host progression model.
+#[allow(clippy::struct_excessive_bools)]
+struct TaskMeta<'a> {
+    task: &'a crate::config::schema::Task,
+    verbose: bool,
+    capture_output: bool,
+    timeout: u64,
+    has_remote_ops: bool,
+    /// Non-steps task with non-empty `local_command` (runs once, not per-host).
+    has_local_once: bool,
+}
+
+/// Resolve task metadata for a task group item.
+fn resolve_task_meta<'a>(
+    config: &'a Config,
+    proxmox_client: Option<&ProxmoxClient>,
+    task_item: &TaskGroupItem,
+    global_verbose: bool,
+    global_capture_output: bool,
+) -> Option<TaskMeta<'a>> {
+    let task = config.get_task(&task_item.task_name)?;
+    let verbose = task.verbose.unwrap_or(false) || global_verbose;
+    let capture_output = task.capture_output.unwrap_or(false) || global_capture_output;
+
+    let has_ssh_ops = if task.has_steps() {
+        task.steps.iter().any(crate::config::TaskStep::needs_ssh)
+    } else {
+        !task.remote_command.is_empty()
+            || !task.upload.is_empty()
+            || !task.download.is_empty()
+            || !task.delete_remote.is_empty()
+    };
+    let timeout = if !has_ssh_ops && !task.proxmox_command.is_empty() {
+        proxmox_client.map_or_else(|| task.timeout(), ProxmoxClient::timeout_secs)
+    } else {
+        task.timeout()
+    };
+
+    let has_remote_ops = if task.has_steps() {
+        task.steps.iter().any(crate::config::TaskStep::needs_ssh)
+            || !task.proxmox_command.is_empty()
+    } else {
+        !task.remote_command.is_empty()
+            || !task.upload.is_empty()
+            || !task.download.is_empty()
+            || !task.delete_remote.is_empty()
+            || !task.proxmox_command.is_empty()
+    };
+
+    let has_local_once = !task.has_steps() && !task.local_command.is_empty();
+
+    Some(TaskMeta {
+        task,
+        verbose,
+        capture_output,
+        timeout,
+        has_remote_ops,
+        has_local_once,
+    })
+}
+
+/// Execute local commands for a task exactly once (shared across hosts via `OnceCell`).
+/// Returns the `HostResult` for the "local" pseudo-host plus whether the task stopped early.
+#[allow(clippy::too_many_arguments)]
+async fn execute_local_once_for_task(
+    task: &crate::config::schema::Task,
+    task_name: &str,
+    config_vars: &HashMap<String, serde_yaml::Value>,
+    group_vars: &HashMap<String, serde_yaml::Value>,
+    task_group_name: &str,
+    timestamp: &str,
+    verbose: bool,
+    capture_output: bool,
+    timeout: u64,
+) -> (HostResult, bool) {
+    let start_time = Instant::now();
+
+    let builtin = BuiltinContext {
+        host: "local".to_string(),
+        task_group: task_group_name.to_string(),
+        timestamp: timestamp.to_string(),
+    };
+    let vars = effective_vars(config_vars, group_vars, task);
+    let (local_cmd, template_error) =
+        render_local_commands(&task.local_command, &vars, &builtin);
+
+    if let Some(err) = template_error {
+        let host_result = HostResult {
+            host_name: "local".to_string(),
+            result: Err(err),
+        };
+        return (host_result, true);
+    }
+
+    let stop_on_err = task.stop_on_error;
+    let local_commands = tokio::task::spawn_blocking(move || {
+        execute_local_commands(&local_cmd, stop_on_err, verbose)
+    })
+    .await
+    .unwrap_or_default();
+    let stopped_early = task.stop_on_error && local_commands.iter().any(|c| !c.success());
+
+    let host_result = HostResult {
+        host_name: "local".to_string(),
+        result: Ok(TaskResult {
+            task_name: task_name.to_string(),
+            proxmox: Vec::new(),
+            local_commands,
+            uploads: Vec::new(),
+            commands: Vec::new(),
+            downloads: Vec::new(),
+            deletes: Vec::new(),
+            local_deletes: Vec::new(),
+            stopped_early,
+            verbose,
+            capture_output,
+            timeout,
+            duration_secs: start_time.elapsed().as_secs_f64(),
+        }),
+    };
+
+    (host_result, stopped_early)
 }
 
 /// Compute effective vars for a task: config vars → group vars → task's own vars.
