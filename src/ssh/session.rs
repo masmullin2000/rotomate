@@ -13,6 +13,12 @@ use super::client::Client;
 /// Default chunk size for SFTP uploads (256KB)
 pub const DEFAULT_CHUNK_SIZE: usize = 256 * 1024;
 
+/// Per-request response timeout for SFTP operations.
+///
+/// `russh_sftp` defaults to 10s, which is too aggressive for slow links or
+/// busy servers — a single delayed WRITE ack will abort the whole transfer.
+const SFTP_RESPONSE_TIMEOUT_SECS: u64 = 120;
+
 /// Authentication method for SSH connections.
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
@@ -58,8 +64,17 @@ impl Session {
     where
         A: ToSocketAddrs,
     {
+        // Keepalives: ping every 10s and treat the configured timeout as the
+        // upper bound on unanswered pings before declaring the link dead. This
+        // keeps slow/idle SFTP transfers alive (each ping resets russh's
+        // inactivity timer) while still detecting truly broken connections.
+        const KEEPALIVE_INTERVAL_SECS: u64 = 10;
+        let keepalive_max = (timeout_secs / KEEPALIVE_INTERVAL_SECS).max(3) as usize;
+
         let config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(timeout_secs)),
+            keepalive_interval: Some(Duration::from_secs(2)),
+            keepalive_max,
             // Increase window size for better throughput (16MB)
             window_size: 16 * 1024 * 1024,
             // Request max packet size (32KB)
@@ -266,10 +281,12 @@ impl Session {
             debug!("SFTP: Failed to request subsystem: {e:?}");
             e
         })?;
-        let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| {
-            debug!("SFTP: Failed to create session: {e:?}");
-            e
-        })?;
+        let sftp = SftpSession::new_opts(channel.into_stream(), Some(SFTP_RESPONSE_TIMEOUT_SECS))
+            .await
+            .map_err(|e| {
+                debug!("SFTP: Failed to create session: {e:?}");
+                e
+            })?;
         debug!("Opened SFTP session in {:?}", start.elapsed());
 
         // Create file and write contents — try pipelined writes first, fall back to sequential
@@ -294,7 +311,9 @@ impl Session {
             let _ = sftp.close().await;
             let channel = self.session.channel_open_session().await?;
             channel.request_subsystem(true, "sftp").await?;
-            let sftp_retry = SftpSession::new(channel.into_stream()).await?;
+            let sftp_retry =
+                SftpSession::new_opts(channel.into_stream(), Some(SFTP_RESPONSE_TIMEOUT_SECS))
+                    .await?;
 
             // Re-create the file (truncates the empty/partial file)
             let mut remote_file = sftp_retry.create(&remote_path).await.map_err(|e| {
@@ -358,7 +377,8 @@ impl Session {
         // Open SFTP channel
         let channel = self.session.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
-        let sftp = SftpSession::new(channel.into_stream()).await?;
+        let sftp =
+            SftpSession::new_opts(channel.into_stream(), Some(SFTP_RESPONSE_TIMEOUT_SECS)).await?;
 
         // Read remote file
         let mut remote_file = sftp.open(remote_path).await?;
@@ -379,7 +399,8 @@ impl Session {
         // Open SFTP channel
         let channel = self.session.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
-        let sftp = SftpSession::new(channel.into_stream()).await?;
+        let sftp =
+            SftpSession::new_opts(channel.into_stream(), Some(SFTP_RESPONSE_TIMEOUT_SECS)).await?;
 
         // Remove the file
         sftp.remove_file(remote_path).await?;
